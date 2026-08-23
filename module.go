@@ -82,7 +82,7 @@ func New(cfg Config, db *data.DB, sessions *security.SessionStore) (*Module, err
 
 // Name is the module identifier: a lowercase slug, stable, no spaces.
 //
-// It is what `aru routes` groups by and what the route names are prefixed with,
+// It is what `aru route:list` groups by and what the route names are prefixed with,
 // so changing it changes addresses that other code has already written down.
 func (m *Module) Name() string { return "skeleton" }
 

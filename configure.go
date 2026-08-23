@@ -7,7 +7,8 @@
 //	go run ./configure.go
 //
 // It asks five questions, shows what it is going to replace, rewrites every
-// file, formats the Go it touched, and deletes itself. There is nothing to undo
+// file, renames the files and directories whose names carried a template value,
+// formats the Go it touched, and deletes itself. There is nothing to undo
 // afterwards and nothing left over to delete by hand.
 //
 // The build tag keeps it out of the package: this file is package main and the
@@ -172,6 +173,12 @@ func run() error {
 		if err := os.WriteFile(file.path, []byte(file.content), file.mode); err != nil {
 			return fmt.Errorf("writing %s: %w", file.path, err)
 		}
+	}
+
+	// Names last, because everything above addressed files by the path they
+	// still had.
+	if err := renamePaths(root, pairs); err != nil {
+		return err
 	}
 
 	if err := os.Remove(filepath.Join(root, selfName)); err != nil {
@@ -572,10 +579,64 @@ func rewriteAll(files []*file, pairs []pair) ([]*file, error) {
 	return files, nil
 }
 
+// renamePaths applies the same substitutions to the names of files and
+// directories.
+//
+// Contents alone is not enough, because one name in this tree is read as data.
+// A skill under .agents/skills/ declares its own directory name in its
+// frontmatter, and a tool that reads the two and finds them different skips the
+// skill -- so a package configured with the contents rewritten and the directory
+// left alone would ship a skill nothing loads, and nothing in the build would
+// say so.
+//
+// Deepest first, so renaming a directory never invalidates a path that is still
+// waiting to be renamed underneath it.
+func renamePaths(root string, pairs []pair) error {
+	var targets []string
+
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		name := entry.Name()
+		if entry.IsDir() && (name == ".git" || name == "node_modules") {
+			return fs.SkipDir
+		}
+		if path != root && rewrite(name, pairs) != name {
+			targets = append(targets, path)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	sort.SliceStable(targets, func(i, j int) bool {
+		return strings.Count(targets[i], string(filepath.Separator)) >
+			strings.Count(targets[j], string(filepath.Separator))
+	})
+
+	for _, path := range targets {
+		dir, name := filepath.Split(path)
+		renamed := filepath.Join(dir, rewrite(name, pairs))
+		// A name already taken is reported rather than overwritten. The rename
+		// stops here, and what has already been renamed stays renamed: the
+		// alternative is a silent replacement of a file somebody wrote.
+		if _, err := os.Lstat(renamed); err == nil {
+			return fmt.Errorf("renaming %s to %s: something is already there, and the rename stopped at that point", path, renamed)
+		}
+		if err := os.Rename(path, renamed); err != nil {
+			return fmt.Errorf("renaming %s: %w", path, err)
+		}
+	}
+	return nil
+}
+
 // report prints what is about to happen, before it happens.
 func report(a answers, pairs []pair) {
 	fmt.Println()
-	fmt.Println("about to replace, everywhere in this repository:")
+	fmt.Println("about to replace, everywhere in this repository -- in the contents of every")
+	fmt.Println("file, and in the names of the files and directories that carry one:")
 	for _, p := range pairs {
 		fmt.Printf("  %-38s -> %s\n", p.old, p.new)
 	}

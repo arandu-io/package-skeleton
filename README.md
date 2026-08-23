@@ -13,8 +13,9 @@ Press **Use this template** on GitHub, clone what it makes, and run:
 go run ./configure.go
 ```
 
-It asks five questions, shows what it will replace, rewrites every file,
-formats the Go it touched, removes this section, and deletes itself. Then:
+It asks five questions, shows what it will replace, rewrites every file, renames
+the files and directories whose names carried a template value, formats the Go
+it touched, removes this section, and deletes itself. Then:
 
 ```bash
 go build ./... && go test ./...
@@ -45,6 +46,13 @@ happens to match.
 | `:author_name` | `Acme` | `LICENSE.md`, this file |
 | `:author_username` | `acme` | `arandu.mod.toml`, `SECURITY.md`, this file |
 | `Skeleton` | `Widget` | the entity, the policy, the repository and the service |
+
+The replacement runs over the contents of every file **and over the names of
+files and directories**. One name in this tree is read as data:
+`.agents/skills/skeleton-package/SKILL.md` declares `name: skeleton-package` in
+its own frontmatter, and a tool that reads the two and finds them different
+skips the skill. Renaming the contents alone would ship a package carrying a
+skill nothing loads, and no gate would say so.
 
 The Go sources and `go.mod` carry the values rather than the `:placeholder`
 spelling, because a module path with a colon in it is not a module path and a
