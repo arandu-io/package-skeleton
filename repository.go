@@ -192,9 +192,14 @@ func (r *SkeletonRepository) Update(ctx context.Context, g security.Grant, recor
 	if err != nil {
 		return Skeleton{}, err
 	}
-	if n, err := res.RowsAffected(); err == nil && n == 0 {
+	n, err := res.RowsAffected()
+	if err != nil {
+		return Skeleton{}, err
+	}
+	if n == 0 {
 		return Skeleton{}, ErrNotFound
 	}
+	record.TenantID = data.Tenant(g)
 	return record, nil
 }
 
@@ -208,7 +213,11 @@ func (r *SkeletonRepository) Delete(ctx context.Context, g security.Grant, id st
 	if err != nil {
 		return err
 	}
-	if n, err := res.RowsAffected(); err == nil && n == 0 {
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
 		return ErrNotFound
 	}
 	return nil

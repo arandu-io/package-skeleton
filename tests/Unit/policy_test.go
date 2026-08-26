@@ -2,6 +2,8 @@ package unit_test
 
 import (
 	"context"
+	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"strings"
 	"testing"
@@ -173,6 +175,90 @@ func TestTheTenantComesFromTheGrant(t *testing.T) {
 	if got := data.Tenant(security.Grant{}); got != "" {
 		t.Fatalf("the zero Grant carries the tenant %q, want none", got)
 	}
+}
+
+func TestUpdatePropagatesARowsAffectedFailure(t *testing.T) {
+	t.Parallel()
+
+	repo := repositoryReturning(t, rowsAffectedFailure{err: errRowsAffected})
+	grant := security.SystemGrant(skeleton.SkeletonUpdate, "acme")
+
+	if _, err := repo.Update(context.Background(), grant, skeleton.Skeleton{ID: "record-1", Name: "one"}); !errors.Is(err, errRowsAffected) {
+		t.Fatalf("Update returned %v, want the driver's RowsAffected failure", err)
+	}
+}
+
+func TestDeletePropagatesARowsAffectedFailure(t *testing.T) {
+	t.Parallel()
+
+	repo := repositoryReturning(t, rowsAffectedFailure{err: errRowsAffected})
+	grant := security.SystemGrant(skeleton.SkeletonDelete, "acme")
+
+	if err := repo.Delete(context.Background(), grant, "record-1"); !errors.Is(err, errRowsAffected) {
+		t.Fatalf("Delete returned %v, want the driver's RowsAffected failure", err)
+	}
+}
+
+func TestUpdateReturnsTheTenantFromTheGrant(t *testing.T) {
+	t.Parallel()
+
+	repo := repositoryReturning(t, driver.RowsAffected(1))
+	grant := security.SystemGrant(skeleton.SkeletonUpdate, "acme")
+	record := skeleton.Skeleton{ID: "record-1", TenantID: "request-tenant", Name: "one"}
+
+	updated, err := repo.Update(context.Background(), grant, record)
+	if err != nil {
+		t.Fatalf("Update failed: %v", err)
+	}
+	if updated.TenantID != "acme" {
+		t.Fatalf("Update returned tenant %q from its argument, want tenant %q from the Grant", updated.TenantID, "acme")
+	}
+}
+
+type resultConnector struct{ result driver.Result }
+
+var errRowsAffected = errors.New("test driver could not report affected rows")
+
+type rowsAffectedFailure struct{ err error }
+
+func (r rowsAffectedFailure) LastInsertId() (int64, error) { return 0, nil }
+
+func (r rowsAffectedFailure) RowsAffected() (int64, error) { return 0, r.err }
+
+func (c resultConnector) Connect(context.Context) (driver.Conn, error) {
+	return &resultConnection{result: c.result}, nil
+}
+
+func (c resultConnector) Driver() driver.Driver { return resultDriver{result: c.result} }
+
+type resultDriver struct{ result driver.Result }
+
+func (d resultDriver) Open(string) (driver.Conn, error) {
+	return &resultConnection{result: d.result}, nil
+}
+
+type resultConnection struct{ result driver.Result }
+
+func (c *resultConnection) Prepare(string) (driver.Stmt, error) {
+	return nil, errors.New("the test connection only accepts ExecContext")
+}
+
+func (*resultConnection) Close() error { return nil }
+
+func (*resultConnection) Begin() (driver.Tx, error) {
+	return nil, errors.New("the test connection does not accept transactions")
+}
+
+func (c *resultConnection) ExecContext(context.Context, string, []driver.NamedValue) (driver.Result, error) {
+	return c.result, nil
+}
+
+func repositoryReturning(t *testing.T, result driver.Result) *skeleton.SkeletonRepository {
+	t.Helper()
+
+	db := sql.OpenDB(resultConnector{result: result})
+	t.Cleanup(func() { _ = db.Close() })
+	return skeleton.NewSkeletonRepository(data.Wrap(db, data.DialectSQLite))
 }
 
 func TestTheRequestValidatesItsInput(t *testing.T) {
