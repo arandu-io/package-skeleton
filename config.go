@@ -2,6 +2,7 @@ package skeleton
 
 import (
 	"fmt"
+	"net/http"
 
 	"github.com/arandu-io/framework/security"
 )
@@ -65,9 +66,33 @@ func (c Config) Validate() error {
 	if c.Prefix != "" && c.Prefix[0] != '/' {
 		return fmt.Errorf("skeleton: Config.Prefix is %q and has to start with /", c.Prefix)
 	}
+	if c.Prefix != "" {
+		if err := validateRoutePrefix(c.Prefix); err != nil {
+			return err
+		}
+	}
 	if c.PageSize < 0 || c.PageSize > MaxPageSize {
 		return fmt.Errorf("skeleton: Config.PageSize is %d, and has to be between 0 and %d, where 0 means %d", c.PageSize, MaxPageSize, DefaultPageSize)
 	}
+	return nil
+}
+
+// validateRoutePrefix asks the standard library to parse the exact patterns
+// the module will register. Its parser is not exported and reports invalid
+// patterns by panic, so the throwaway mux turns that boot-time panic into the
+// configuration error New promises.
+func validateRoutePrefix(prefix string) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("skeleton: Config.Prefix %q cannot be registered as a route path", prefix)
+		}
+	}()
+
+	handler := http.NotFoundHandler()
+	mux := http.NewServeMux()
+	mux.Handle(http.MethodGet+" "+prefix, handler)
+	mux.Handle(http.MethodGet+" "+prefix+"/{id}", handler)
+	mux.Handle(http.MethodPost+" "+prefix, handler)
 	return nil
 }
 

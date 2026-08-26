@@ -137,6 +137,19 @@ func TestNewRefusesAWiringThatCannotWork(t *testing.T) {
 	}
 }
 
+func TestNewRefusesARoutePrefixThatCannotBeRegistered(t *testing.T) {
+	t.Parallel()
+
+	sessions := security.NewSessionStore([]byte(appKey), time.Hour, false, security.NewMemoryBackend())
+	handle := data.Wrap(nil, data.DialectSQLite)
+
+	for _, prefix := range []string{"/widgets{", "/widgets/{id}"} {
+		if _, err := skeleton.New(skeleton.Config{Tenant: "acme", Prefix: prefix}, handle, sessions); err == nil {
+			t.Errorf("New accepted route prefix %q, which would panic during route registration", prefix)
+		}
+	}
+}
+
 func TestTheModuleDeclaresItsSchema(t *testing.T) {
 	t.Parallel()
 
