@@ -4,7 +4,7 @@ go 1.26
 
 require (
 	github.com/arandu-io/framework v0.35.0
-	github.com/arandu-io/hesape v0.12.0
+	github.com/arandu-io/hesape v0.15.0
 )
 
 require (

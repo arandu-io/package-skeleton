@@ -28,6 +28,7 @@ import (
 	"github.com/arandu-io/framework/security"
 	"github.com/arandu-io/framework/validation"
 	"github.com/arandu-io/hesape/database/migrations"
+	"github.com/arandu-io/hesape/database/schema"
 )
 
 // Module is what the application registers.
@@ -221,30 +222,29 @@ func (createSkeletons) GetName() string { return "20260823_0001_create_skeletons
 
 // Up creates the table and the index the keyset pagination scans.
 //
-// Every type here spells the same in SQLite, PostgreSQL and MySQL, which is
-// what lets one application develop on a file and deploy on Postgres without a
-// second schema. The identifier columns are VARCHAR rather than TEXT because
-// they take part in a key, and MySQL refuses TEXT in one without a prefix
-// length. The timestamp has no database default: the value comes from Go.
+// The Blueprint spells each column for the engine the migration is running on,
+// which is what lets one application develop on a file and deploy on Postgres
+// without a second schema. That used to be written out as SQL here, with a
+// comment explaining that an identifier column is VARCHAR rather than TEXT
+// because it takes part in a key and MySQL refuses TEXT in one without a prefix
+// length -- which is the grammar's job, done by hand in every migration that
+// remembered to.
+//
+// The timestamp has no database default: the value comes from Go.
 func (createSkeletons) Up(ctx context.Context, conn migrations.Connection) error {
-	if _, err := conn.Statement(ctx, `CREATE TABLE skeletons (
-    id          VARCHAR(255) PRIMARY KEY,
-    tenant_id   VARCHAR(255) NOT NULL,
-    name        VARCHAR(255) NOT NULL,
-    created_at  TIMESTAMP NOT NULL
-)`, nil); err != nil {
-		return err
-	}
+	return conn.Schema().Create(ctx, "skeletons", func(table *schema.Blueprint) {
+		table.String("id").Primary()
+		table.String("tenant_id")
+		table.String("name")
+		table.Timestamp("created_at")
 
-	// The index matches the ORDER BY of the listing, tenant first. Without it
-	// every page is a scan of every customer's rows.
-	_, err := conn.Statement(ctx,
-		`CREATE INDEX skeletons_tenant_created_idx ON skeletons (tenant_id, created_at, id)`, nil)
-	return err
+		// The index matches the ORDER BY of the listing, tenant first. Without
+		// it every page is a scan of every customer's rows.
+		table.Index([]string{"tenant_id", "created_at", "id"}, "skeletons_tenant_created_idx")
+	})
 }
 
 // Down drops the table, which takes its index with it.
 func (createSkeletons) Down(ctx context.Context, conn migrations.Connection) error {
-	_, err := conn.Statement(ctx, `DROP TABLE skeletons`, nil)
-	return err
+	return conn.Schema().DropIfExists(ctx, "skeletons")
 }
