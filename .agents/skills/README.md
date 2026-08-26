@@ -18,12 +18,18 @@ names the situation you are in rather than the topic it covers.
 | `skeleton-policy` | opening an action, adding a repository method, or anything answering 403 |
 | `skeleton-module` | adding a route, a handler, a config field, a response field or a migration |
 | `skeleton-release` | the gates, the manifest, a dependency, a version, a tag |
+| `skeleton-vault-notes` | writing the note, the gap or the journal entry, when this checkout sits inside the Arandu Obsidian vault |
 | `skeleton-package` | installing and wiring this package **into an application** |
 
 The last one has a different audience from the other three, and that is on
 purpose: it travels with the package so that an assistant working in somebody
 else's project — the one running `go get` — has the wiring, the migration step
 and the closed policy in front of it instead of guessing.
+
+`skeleton-vault-notes` fires on a condition rather than on a task: it applies
+only when `MOC-arandu.md`, `plans/audit-vault.py` and `45-modules/` are actually
+beside this checkout. Outside the vault it is inert, and it says so first, so a
+package cloned somewhere else never grows a folder tree imitating one.
 
 <!-- configure:template-start -->
 `skeleton-package` is also the one written as a template. It carries the
