@@ -25,6 +25,22 @@ const (
 
 // SkeletonRepository is the only door to the skeletons table.
 //
+// It is a hand-written CRUD repository: five methods over one table, with the
+// four statements written out. That is what this package starts from, and it is
+// not where the data path ends up. Trivial CRUD belongs to the framework's
+// generic model and the query builder it carries, which take the same Grant on
+// every read and every write and derive the same four statements from the
+// entity. What is left to a repository after that is the work no generated
+// statement covers: a query that joins two aggregates, a read model, a report,
+// an export.
+//
+// The statements are written out here rather than taken from that model because
+// the model's signatures are still moving, and a package built against a moving
+// signature is a package that stops compiling for whoever installed it. When
+// they settle, this file is the one to replace. The three properties below are
+// what has to survive that replacement, and the model keeps all three -- so
+// what changes is how the statements are spelled, and nothing above them.
+//
 // Every method takes the Grant before the id, and the order is the mechanism
 // rather than a convention. A caller cannot name a record without first holding
 // a decision that was already made about it, and cannot leave the decision out,
@@ -42,7 +58,10 @@ const (
 //
 // The SQL is written with "?" placeholders and with types every supported
 // engine shares, so the same statements run on SQLite and on PostgreSQL. The
-// dialect rebinds the placeholders; nothing else needs translating.
+// dialect rebinds the placeholders; nothing else needs translating. This
+// paragraph is the one the model makes unnecessary: the placeholders and the
+// portable types are what it emits from the entity, and the three properties
+// above are what it does not emit and cannot replace.
 type SkeletonRepository struct {
 	db *data.DB
 }
