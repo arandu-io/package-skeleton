@@ -25,22 +25,6 @@ const (
 
 // SkeletonRepository is the only door to the skeletons table.
 //
-// It is a hand-written CRUD repository: five methods over one table, with the
-// four statements written out. That is what this package starts from, and it is
-// not where the data path ends up. Trivial CRUD belongs to the framework's
-// generic model and the query builder it carries, which take the same Grant on
-// every read and every write and derive the same four statements from the
-// entity. What is left to a repository after that is the work no generated
-// statement covers: a query that joins two aggregates, a read model, a report,
-// an export.
-//
-// The statements are written out here rather than taken from that model because
-// the model's signatures are still moving, and a package built against a moving
-// signature is a package that stops compiling for whoever installed it. When
-// they settle, this file is the one to replace. The three properties below are
-// what has to survive that replacement, and the model keeps all three -- so
-// what changes is how the statements are spelled, and nothing above them.
-//
 // Every method takes the Grant before the id, and the order is the mechanism
 // rather than a convention. A caller cannot name a record without first holding
 // a decision that was already made about it, and cannot leave the decision out,
@@ -58,10 +42,45 @@ const (
 //
 // The SQL is written with "?" placeholders and with types every supported
 // engine shares, so the same statements run on SQLite and on PostgreSQL. The
-// dialect rebinds the placeholders; nothing else needs translating. This
-// paragraph is the one the model makes unnecessary: the placeholders and the
-// portable types are what it emits from the entity, and the three properties
-// above are what it does not emit and cannot replace.
+// dialect rebinds the placeholders; nothing else needs translating.
+//
+// # What kind of repository this is: legacy CRUD, without an exception
+//
+// A repository is where a query too complex to generate lives -- a join, an
+// aggregate, a shape built for a screen. Measured against the statements in
+// this file, none of it is that.
+//
+// Find is one select by primary key. List is the same select with the keyset
+// predicate it builds for its cursor, and the subqueries inside that predicate
+// resolve an id of this same table. Create inserts one row, Update writes one
+// column of one row, Delete removes one row. Every statement names skeletons
+// and nothing else; not one joins, groups or projects.
+//
+// That is the pattern a generic model replaces, so a template shipping it hands
+// whoever clones it the thing being retired. Two things keep it here, and
+// neither of them is a matter of waiting.
+//
+// The first is wiring. The model's entry point takes a connection that compiles
+// statements through a grammar and reads results back through a processor. What
+// a module is handed, and what the constructor below takes, is the instrumented
+// handle -- the one that puts a statement on the debug page with the file and
+// line that issued it. Neither type satisfies the other and nothing converts
+// between them, so these statements cannot be written through the model at all
+// until something bridges the two.
+//
+// The second is that the model settles the tenant and not the action. It
+// requires a Grant on every read and every write and filters by the tenant on
+// it, which is two of the properties above; it never asks whether that Grant
+// was issued for the operation being performed. Moving these five methods onto
+// it as they stand would drop every g.Check in the file, and the audit that
+// holds them would be left with no statement to read -- which it reports rather
+// than passes.
+//
+// When both are answered, replace what is in this file rather than adding to
+// it. CRUD does not belong here once it can be generated. What is left to a
+// repository then is the work no generated statement covers -- a query that
+// joins two aggregates, a read model, a report, an export -- and that is the
+// only thing worth opening this file for.
 type SkeletonRepository struct {
 	db *data.DB
 }
