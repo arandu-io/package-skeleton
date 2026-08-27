@@ -76,11 +76,13 @@ worse than none.
 ## One thing that is only true before you configure
 
 `arandu.mod.toml` declares `filesystem = false`, and `configure.go` reads and
-writes files. That is not a contradiction in the package: the manifest
-describes what is published, and `configure.go` is deleted before anything is
-published. It is worth knowing because a capability audit run on the template
-itself will report it, and the fix is to configure the template rather than to
-widen the declaration.
+writes files. That is not a contradiction in the package: `configure.go` opens
+with a build tag, so the compiler never puts it in the module, and it deletes
+itself before anything is published. The capability audit in
+`tests/Unit/audit_test.go` asks the build constraint for exactly this reason and
+leaves it out — a file the compiler never reads is not part of what the package
+does — so it passes here as it does afterwards. Any other file you exclude by a
+tag is left out on the same terms.
 
 <!-- configure:template-end -->
 # :package_name
@@ -201,9 +203,12 @@ query string or a header. The value on the Grant came from the session; a value
 that arrived with the request is a value the caller chose.
 
 **`arandu.mod.toml` declares what the package does** — network, filesystem,
-exec, migrations — and `aru doctor` compares the declaration against the
-imports. A package that says it makes no outbound calls and then holds an HTTP
-client is rejected.
+exec, migrations — and the suite compares the declaration against what the code
+*calls*, not against what it imports: `net/http` is imported by everything with
+a route and says nothing. A package that says it makes no outbound calls and
+then opens one fails its own tests, and that is the only place the comparison
+happens. `aru doctor` audits the application it is run inside and never loads a
+dependency, so nothing audits an installed package except the package itself.
 
 ## Tests
 

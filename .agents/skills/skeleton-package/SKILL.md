@@ -91,8 +91,9 @@ route that authorized correctly. The migration has not run.
 `Tenant` is the one place a tenant does not come from a `Grant`, and it is
 because a visitor with no session has no `Grant` yet. Everywhere else the tenant
 comes from `data.Tenant(g)`. Passing a value the request named — a path segment,
-a header, a subdomain read off the URL — is the mistake `aru doctor` reports as
-`tenant-from-request`.
+a header, a subdomain read off the URL — is what `TestNoTenantIsReadOutOfTheRequest`
+fails on. In an application the same mistake is `aru doctor`'s
+`tenant-from-request`; in a package nothing but the package's own suite looks.
 
 `PageSize` above 200 is an error from `New`, not a silent 200. A number somebody
 wrote and did not get is worse than a number somebody wrote and was told about.

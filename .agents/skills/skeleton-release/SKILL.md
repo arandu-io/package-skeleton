@@ -43,8 +43,10 @@ keeps it out of `./...`.
 
 ## What the manifest declares, and who reads it
 
-`arandu.mod.toml` is a promise with the weight of a check, and the check runs in
-the application that installs this package rather than here.
+`arandu.mod.toml` is a promise, and the check that gives it weight runs here.
+Nowhere else does: `aru doctor` audits the tree of the application it is run
+inside and never loads a dependency, so the manifest of an installed package is
+opened by nothing but that package's own suite.
 
 ```toml
 name = ":author_username/:module_slug"
@@ -58,14 +60,17 @@ exec = false
 migrations = true
 ```
 
-`aru doctor` in an application compares the four permissions against what the
-code *calls*, by AST — `os.WriteFile`, `os.ReadFile`, `filepath.WalkDir`,
-`exec.Command`, `http.Get`, `.Do`, `net.Dial`, and a method named `Migrations`
-on a receiver. It looks at calls rather than imports because `net/http` is
-imported by everything that has a route and says nothing about whether it calls
-out.
+`TestTheDeclaredCapabilitiesAreWhatTheCodeDoes`, in `tests/Unit/audit_test.go`,
+compares the four permissions against what the code *calls*, by AST —
+`os.WriteFile`, `os.ReadFile`, `filepath.WalkDir`, `exec.Command`, `http.Get`,
+`.Do`, `net.Dial`, and a method named `Migrations` on a receiver. It looks at
+calls rather than imports because `net/http` is imported by everything that has
+a route and says nothing about whether it calls out. A file behind a build tag
+is left out, because the compiler never puts it in the module.
 
-Two findings come out of that comparison, and the severities are not the same:
+Two findings come out of that comparison. The names and severities below are
+`aru doctor`'s, from the day an application runs the same comparison over its
+own code; here both fail the suite, because `go test` has one outcome:
 
 | finding | severity | what it means |
 | --- | --- | --- |

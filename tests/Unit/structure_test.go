@@ -286,7 +286,10 @@ func productionGoFiles(t *testing.T, root string) []parsedGoFile {
 			return nil
 		}
 
-		file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+		// The comments are kept because a build constraint is one, and a file
+		// the compiler never reads is not part of what this package does.
+		// buildable, in audit_test.go, is what asks.
+		file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ParseComments)
 		if err != nil {
 			return err
 		}

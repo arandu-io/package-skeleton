@@ -57,8 +57,10 @@ lives outside `arandu-io` and is not in the root `go.work`.
 Four questions, in this order, because it is the order somebody reads them in:
 
 1. **What the module declares about itself.** Paste `arandu.mod.toml` whole — the
-   permissions especially. It is what `aru doctor` compares against what the code
-   actually calls, in the application that installs this package.
+   permissions especially. It is what `tests/Unit/audit_test.go` compares against
+   what the code actually calls, in this repository — nothing downstream does,
+   because `aru doctor` reads the application's own tree and never opens an
+   installed package.
 2. **How an application wires it.** The typed construction and the explicit
    registration. Never a service provider, a container or discovery — writing
    those into a note is how the next reader builds one.

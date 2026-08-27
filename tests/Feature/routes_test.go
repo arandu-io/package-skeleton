@@ -27,6 +27,15 @@ import (
 // do here; a real application reads its own from the environment.
 const appKey = "0123456789abcdef0123456789abcdef"
 
+// reservedPrefix is the namespace the framework keeps for itself: the health
+// probe, the reload endpoint, the development console, the addressed assets.
+//
+// A module that registers under it is refused when the application boots, by
+// name -- and that refusal happens in the process of whoever installed this
+// package, after it was published. Here the same rule is a failing test, in the
+// repository that can still fix it.
+const reservedPrefix = "/_arandu"
+
 // mount builds the module and returns a router with its routes registered.
 func mount(t *testing.T, cfg skeleton.Config) *fhttp.Router {
 	t.Helper()
@@ -112,6 +121,38 @@ func TestTheModuleRegistersItsRoutesUnderItsPrefix(t *testing.T) {
 	for i := range want {
 		if got[i] != want[i] {
 			t.Fatalf("registered %v, want %v", got, want)
+		}
+	}
+}
+
+// TestNoRouteLandsInTheFrameworkNamespace is the one property of this package
+// that syntax cannot hold, and it is why it is checked here rather than beside
+// the other four in tests/Unit/audit_test.go: a prefix arrives through
+// configuration, so the only way to know where the routes ended up is to
+// register them and read the table back.
+//
+// Both the default and a configured prefix are mounted, because the two reach
+// the router by different paths and only one of them is written in this
+// repository.
+func TestNoRouteLandsInTheFrameworkNamespace(t *testing.T) {
+	t.Parallel()
+
+	for _, cfg := range []skeleton.Config{
+		{Tenant: "acme"},
+		{Tenant: "acme", Prefix: "/widgets"},
+	} {
+		router := mount(t, cfg)
+
+		registered := 0
+		for _, route := range router.Routes() {
+			registered++
+			if route.Pattern == reservedPrefix || strings.HasPrefix(route.Pattern, reservedPrefix+"/") {
+				t.Errorf("the route %s %s is registered under %s/, which the framework keeps for itself and refuses at boot",
+					route.Method, route.Pattern, reservedPrefix)
+			}
+		}
+		if registered == 0 {
+			t.Fatal("the module registered no route, so this test proved nothing")
 		}
 	}
 }

@@ -101,17 +101,21 @@ this is not an Arandu project: no go.mod, main.go and arandu.toml together.
 Run it from inside a project, or create one with `aru new`
 ```
 
-It exits 1. It reads applications, and this is a library. The rules it would
-apply to a package that is installed — `tenant-from-request`,
-`system-grant-without-tenant`, `permission-not-declared` — run in the
-application that installs this one, not here.
+It exits 1. It reads applications, and this is a library.
+
+It does not read this one after it is installed either, and that is why
+`tests/Unit/audit_test.go` exists. The doctor walks the application's own tree,
+skips `vendor/`, and opens the one `arandu.mod.toml` at its root; it never loads
+a dependency. So `tenant-from-request`, `system-grant-without-tenant` and
+`permission-not-declared` never see a line of an installed package, and whatever
+this one must prove about itself it proves in its own suite or nowhere.
 
 ## What this repository holds
 
 | | measured with |
 | --- | --- |
 | 6 Go files, one per role, all in one package at the root | `grep -l '^package skeleton' *.go` |
-| 2 test files, 15 tests | `find tests -name '*_test.go'` · `go test -count=1 ./... -v \| grep -c '^--- PASS'` |
+| 4 test files, 27 tests | `find tests -name '*_test.go'` · `go test -count=1 ./... -v \| grep -c '^--- PASS'` |
 | 3 routes | `grep -c 'r.Action' module.go` |
 | 5 actions the policy answers about | `grep -cE '^\t[A-Za-z]+ security.Action = ' policy.go` |
 | 2 direct dependencies, both under `arandu-io` | `go list -m -f '{{if and (not .Indirect) (not .Main)}}{{.Path}} {{.Version}}{{end}}' all` |
@@ -163,15 +167,31 @@ checks all four against the code.
    a statement that ran would panic. Every refusal the suite asserts is
    therefore proof that the refusal came before the query.
 
-`arandu.mod.toml` is the fifth thing to keep true, and it is checked in somebody
-else's repository rather than here. It declares `network`, `filesystem`, `exec`
-and `migrations`, and `aru doctor` in an application compares the declaration
-against what the code *calls* — `os.WriteFile`, `exec.Command`, `http.Get`, a
-method named `Migrations` — rather than against what it imports, because
-`net/http` is imported by everything with a route and says nothing. Used and not
-declared is `permission-not-declared`, an error. Declared and not used is
-`permission-not-used`, a warning. Adding an outbound call, a file write or a
-process means declaring it in the same commit.
+`policy_test.go` holds those four by calling the code. `tests/Unit/audit_test.go`
+holds the same shape by *reading* it, on every function rather than on the five
+that exist today: a statement issued with no Grant, a Grant taken after the
+identifier, a `Check` whose answer is discarded, a tenant read out of the
+request, a repository reached before the policy answered.
+
+It also compares `arandu.mod.toml` against what the code *calls* —
+`os.WriteFile`, `exec.Command`, `http.Get`, a method named `Migrations` — rather
+than against what it imports, because `net/http` is imported by everything with
+a route and says nothing. Both directions fail: used and not declared, which is
+`permission-not-declared` where the doctor runs it, and declared and not used,
+which is a warning there and a failure here because `go test` has one outcome.
+Adding an outbound call, a file write or a process means declaring it in the
+same commit, and the suite is what says so.
+
+The fifth property is not syntax, so it is held where the routes exist.
+`TestNoRouteLandsInTheFrameworkNamespace`, in `tests/Feature/routes_test.go`,
+registers the module and reads the table back: a prefix arrives through
+configuration, and `/_arandu/` is refused when the application boots — in the
+installer's process, after publication.
+
+What the audit does not reach is written at the top of the file it lives in. It
+reads syntax, so a call made through a value of interface type, or a statement
+assembled out of a package-level variable, is invisible to it. A green run means
+no such thing was found written down, not that none exists.
 
 ## Writing code
 

@@ -43,9 +43,10 @@ go doc github.com/arandu-io/framework/foundation
 
 Two of them change what `arandu.mod.toml` has to say. A `Background` loop that
 calls out needs `network = true`; anything that writes a file needs
-`filesystem = true`. Declare it in the same commit as the code, or the
-application that installs this package fails `aru doctor` with
-`permission-not-declared` and the person reading it has no idea why.
+`filesystem = true`. Declare it in the same commit as the code, or
+`TestTheDeclaredCapabilitiesAreWhatTheCodeDoes` fails and names which of the
+four it was. Nothing downstream would have caught it: `aru doctor` reads the
+application's own tree and never opens an installed package.
 
 ## Adding a route
 

@@ -26,10 +26,11 @@ guarantees. `Authorize` is the only function in the framework that returns a
 valid one; `Grant`'s fields are unexported, so a handler cannot assemble one.
 What it does *not* stop is `security.SystemGrant`, which is exported and issues
 a Grant with no policy involved. That is for work with no request behind it — a
-job, a scheduled task — and in an application `aru doctor` reports it as
-`system-grant-outside-scope` when it appears in a handler, and
+job, a scheduled task — and in an application's own code `aru doctor` reports it
+as `system-grant-outside-scope` when it appears in a handler, and
 `system-grant-without-tenant` when it is called with an empty tenant. A lint,
-not the type system. Do not reach for it in this package.
+not the type system, and one that never runs over an installed package. Nothing
+here reports it either. Do not reach for it in this package.
 
 ## The procedure
 
@@ -151,7 +152,8 @@ beside the tenant filter. The action decides whether the listing runs at all.
 
 - **A tenant taken from the request.** The path, the body, the query string, a
   header — all of them are values the caller chose. `data.Tenant(g)` is the only
-  source, and in an application `aru doctor` reports the others as
+  source, and `TestNoTenantIsReadOutOfTheRequest` is what fails on the others
+  here; in an application's own code they are `aru doctor`'s
   `tenant-from-request` and `tenant-from-header`. The one place a tenant does
   not come from a Grant is `Config.Tenant`, which is the customer a visitor with
   no session is read as, and it comes from the application's own configuration.
