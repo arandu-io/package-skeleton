@@ -54,6 +54,17 @@ jobs:
       - name: test
         run: go test -race ./...
 
+      # Required by doc 24: a known vulnerability blocks the merge rather than
+      # showing up in a report nobody reads.
+      #
+      # It is outside the template markers on purpose, so it survives configure:
+      # a package cloned from here inherits the check, which is the whole reason
+      # a skeleton carries CI at all.
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
   # configure:template-start
   # The template configures cleanly, and what comes out passes the same gates.
   #
