@@ -10,6 +10,16 @@ a release is corrected by another release and never by moving a tag.
 
 ## [Unreleased]
 
-### Added
+### Changed
 
-- Nothing yet.
+- Generic CRUD now uses the configured `Skeletons(db)` Model and its Builder.
+- `NewSkeletonService` now accepts `*data.DB` directly.
+- `SkeletonService.Create`, `Find`, and `List` now return Model-backed pointers;
+  keep those pointers intact until taking a response snapshot.
+- `Skeleton` now embeds `model.Model[Skeleton]` and is no longer comparable.
+
+### Removed
+
+- `SkeletonRepository`, `NewSkeletonRepository`, and the five generic CRUD
+  methods. Add a Repository only for specialized queries, reports, projections,
+  read models, exports, or external storage.
