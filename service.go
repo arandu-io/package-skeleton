@@ -2,11 +2,29 @@ package skeleton
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/arandu-io/framework/data"
 	"github.com/arandu-io/framework/security"
 	"github.com/arandu-io/framework/validation"
+	"github.com/arandu-io/hesape/database/model"
 )
+
+// Pagination bounds for List. A request that asks for everything gets the
+// maximum, never everything: an unbounded query is how one page load takes a
+// production database down.
+const (
+	defaultLimit = 50
+	maxLimit     = 200
+)
+
+// sortableSkeleton is the ordering allowlist. A column name taken directly
+// from a request would turn ordering into an injection surface.
+var sortableSkeleton = map[string]string{
+	"":           "created_at",
+	"name":       "name",
+	"created_at": "created_at",
+}
 
 // SkeletonService holds the rules of this package.
 //
@@ -15,17 +33,17 @@ import (
 // the one place that builds it, and reading that place is how somebody learns
 // what the package touches.
 //
-// Everything a handler is allowed to do goes through here, which is what keeps
-// the repository out of reach of the request layer. A handler that could reach
-// the repository would be a handler that could skip the policy.
+// Everything a handler is allowed to do goes through here. The service is the
+// only owner of the database handle, so the request layer cannot reach a Model
+// before the policy has answered.
 type SkeletonService struct {
-	repo   *SkeletonRepository
+	db     *data.DB
 	policy SkeletonPolicy
 }
 
-// NewSkeletonService wires the service over a repository.
-func NewSkeletonService(repo *SkeletonRepository) *SkeletonService {
-	return &SkeletonService{repo: repo}
+// NewSkeletonService wires the service over the application's database handle.
+func NewSkeletonService(db *data.DB) *SkeletonService {
+	return &SkeletonService{db: db}
 }
 
 // CreateRequest is the input contract.
@@ -56,18 +74,32 @@ var _ validation.Validatable = CreateRequest{}
 // The candidate is authorized before it is stored, and the candidate is what
 // the policy sees -- so a rule about what may be created is a rule about the
 // record being created, and not about the person alone.
-func (s *SkeletonService) Create(ctx context.Context, actor security.Subject, in CreateRequest) (Skeleton, error) {
+func (s *SkeletonService) Create(ctx context.Context, actor security.Subject, in CreateRequest) (*Skeleton, error) {
 	if errs := in.Validate(); errs.Any() {
-		return Skeleton{}, errs
+		return nil, errs
 	}
 
-	candidate := Skeleton{TenantID: actor.Tenant, Name: in.Name}
+	proposed := Skeleton{Name: in.Name}
 
-	g, err := security.Authorize(ctx, s.policy, actor, SkeletonCreate, candidate)
+	g, err := security.Authorize(ctx, s.policy, actor, SkeletonCreate, proposed)
 	if err != nil {
-		return Skeleton{}, err
+		return nil, err
 	}
-	return s.repo.Create(ctx, g, candidate)
+	if proposed.ID, err = data.NewID(); err != nil {
+		return nil, err
+	}
+	instance, err := Skeletons(s.db).NewInstance(nil, false)
+	if err != nil {
+		return nil, err
+	}
+	candidate := instance.Entity
+	candidate.ID = proposed.ID
+	candidate.TenantID = data.Tenant(g)
+	candidate.Name = proposed.Name
+	if _, err := candidate.Save(ctx, g); err != nil {
+		return nil, err
+	}
+	return candidate, nil
 }
 
 // Find returns one record, and asks the policy twice.
@@ -84,19 +116,22 @@ func (s *SkeletonService) Create(ctx context.Context, actor security.Subject, in
 //
 // The read itself is already scoped by data.Tenant, so the second call is not
 // what keeps customers apart. It is what keeps the policy honest.
-func (s *SkeletonService) Find(ctx context.Context, actor security.Subject, id string) (Skeleton, error) {
+func (s *SkeletonService) Find(ctx context.Context, actor security.Subject, id string) (*Skeleton, error) {
 	g, err := security.Authorize(ctx, s.policy, actor, SkeletonView, Skeleton{})
 	if err != nil {
-		return Skeleton{}, err
+		return nil, err
 	}
 
-	record, err := s.repo.Find(ctx, g, id)
+	record, err := Skeletons(s.db).NewQuery().WhereKey(id).First(ctx, g)
 	if err != nil {
-		return Skeleton{}, err
+		return nil, err
+	}
+	if record == nil {
+		return nil, ErrNotFound
 	}
 
-	if _, err := security.Authorize(ctx, s.policy, actor, SkeletonView, record); err != nil {
-		return Skeleton{}, err
+	if _, err := security.Authorize(ctx, s.policy, actor, SkeletonView, *record); err != nil {
+		return nil, err
 	}
 	return record, nil
 }
@@ -112,10 +147,42 @@ func (s *SkeletonService) Find(ctx context.Context, actor security.Subject, id s
 // A rule that hides individual records from a listing belongs in the statement,
 // as a predicate, and the action here is what decides whether the listing may
 // run at all.
-func (s *SkeletonService) List(ctx context.Context, actor security.Subject, q data.Query) ([]Skeleton, error) {
+func (s *SkeletonService) List(ctx context.Context, actor security.Subject, q data.Query) ([]*Skeleton, error) {
 	g, err := security.Authorize(ctx, s.policy, actor, SkeletonList, Skeleton{})
 	if err != nil {
 		return nil, err
 	}
-	return s.repo.List(ctx, g, q)
+
+	column, ok := sortableSkeleton[q.Sort]
+	if !ok {
+		return nil, fmt.Errorf("skeleton: sort field not allowed: %q", q.Sort)
+	}
+
+	limit := q.Limit
+	switch {
+	case limit <= 0:
+		limit = defaultLimit
+	case limit > maxLimit:
+		limit = maxLimit
+	}
+
+	rows := Skeletons(s.db)
+	page := rows.NewQuery()
+	if q.Cursor != "" {
+		anchor, err := rows.NewQuery().WhereKey(q.Cursor).Value(ctx, g, column)
+		if err != nil {
+			return nil, err
+		}
+		if anchor == nil {
+			return nil, nil
+		}
+		page = page.Where(func(after *model.Builder[Skeleton]) {
+			after.Where(column, ">", anchor).
+				OrWhere(func(equal *model.Builder[Skeleton]) {
+					equal.Where(column, "=", anchor).Where("id", ">", q.Cursor)
+				})
+		})
+	}
+
+	return page.OrderBy(column).OrderBy("id").Limit(limit).Get(ctx, g)
 }

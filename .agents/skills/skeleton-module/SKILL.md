@@ -79,9 +79,9 @@ func (m *Module) destroy(ctx *fhttp.Context) error {
 what it is handed, so a nil resource panics inside the framework rather than
 answering 204.
 
-No rule and no statement lives in a handler. A handler that reached the
-repository would be a handler that skipped the policy — read `skeleton-policy`
-before writing the service method it calls.
+No rule and no Model construction lives in a handler. A handler that held the
+database or called `Skeletons` would bypass the only place the Policy is
+guaranteed to run. Read `skeleton-policy` before writing the Service method.
 
 **3. Let `answer` translate the refusal.** It knows three: `security.ErrForbidden`
 becomes 403, `ErrNotFound` becomes 404, and a `validation.Errors` becomes 422
@@ -106,6 +106,34 @@ The guest's tenant is the one place in this package where a tenant does not come
 from a Grant, and it is because there is no Grant yet. It comes from
 `Config.Tenant`, which is the application's own configuration — never from the
 request.
+
+## Changing the Model
+
+`Skeleton` embeds `model.Model[Skeleton]`, and `Skeletons(db)` is the one
+configured entry point for the table. Keep the application-generated key
+settings and tenant default visible there:
+
+```go
+func Skeletons(db *data.DB) *model.Model[Skeleton] {
+	m := model.NewModel[Skeleton]("skeletons", db, db.GetQueryGrammar(), db.GetPostProcessor())
+	m.KeyType = "string"
+	m.Incrementing = false
+	return m
+}
+```
+
+Do not set `TenantColumn` to `""`: this package owns tenant data. Model
+terminals require a Grant and apply `tenant_id`; the Service still calls
+`security.Authorize` first because the Model does not decide which Policy
+action the Grant represents.
+
+Keep rows as pointers after `NewInstance`, `First`, `Find`, or `Get`. The
+embedded Model's `Entity` points into that allocation, so copying the row and
+then calling a promoted terminal would act on the original.
+
+This table declares `created_at` but not `updated_at`. The Hesape Model stamps a
+timestamp only when the entity declares its column, so creation remains correct
+without changing the published migration or disabling timestamps globally.
 
 ## Adding a configuration field
 
@@ -136,11 +164,16 @@ if the field can make `New` fail.
 
 ## What may leave in a response
 
-`Resource` and `Collection` in `model.go` are declared lists of fields, not the
-entity. An encoder handed the entity answers with whatever fields it happens to
-have, including the ones somebody adds later without ever opening the handler —
-and `TenantID` is exactly such a field. It names another customer's identifier
-and belongs in no response.
+`Resource` and `Collection` in `model.go` are declared snapshots, not direct
+encoding of the entity. This also defines the safe copy boundary: Model-backed
+Service results stay as `*Skeleton`/`[]*Skeleton`, because copying an embedded
+Model preserves a back-pointer to the original allocation. A response snapshot
+reads only the explicit fields and cannot be saved.
+
+An encoder handed the entity would answer with whatever fields it happens to
+have, including the embedded Model and anything added later without opening the
+handler. `TenantID` names another customer's identifier and belongs in no
+response.
 
 So a new column that should be visible is added in two places: the struct in
 `model.go`, and the map `ToArray` returns. A column that should not be visible

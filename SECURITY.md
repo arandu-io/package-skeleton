@@ -28,9 +28,11 @@ unless you ask not to be.
 Anything that lets a caller reach data a policy did not authorize. In
 particular:
 
-- a path from a handler to the repository that does not pass through a policy;
-- a statement that is not scoped by `data.Tenant(g)`, on any path, read or
-  write;
+- a path from a handler to a Model or database handle that does not pass through
+  the Service and its Policy;
+- a Model terminal reached before `security.Authorize`;
+- a query whose tenant scope is disabled, or a tenant taken from anywhere but
+  `data.Tenant(g)`;
 - a `Grant` that can be produced without a policy returning nil;
 - a field reaching a response that `Resource` does not list.
 

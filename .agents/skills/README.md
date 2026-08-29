@@ -15,7 +15,7 @@ names the situation you are in rather than the topic it covers.
 
 | skill | when it fires |
 | --- | --- |
-| `skeleton-policy` | opening an action, adding a repository method, or anything answering 403 |
+| `skeleton-policy` | opening an action, adding an authorized Model-backed use case, or anything answering 403 |
 | `skeleton-module` | adding a route, a handler, a config field, a response field or a migration |
 | `skeleton-release` | the gates, the manifest, a dependency, a version, a tag |
 | `skeleton-vault-notes` | writing the note, the gap or the journal entry, when this checkout sits inside the Arandu Obsidian vault |
@@ -47,19 +47,16 @@ knows, and the repository name is not.
 <!-- configure:template-end -->
 ## Why these exist
 
-The audience of the first three is somebody changing the package. A model asked
-to work here fills the gap with the frameworks it does know, and produces a
-service provider, a model with a `Save()` on it, a container lookup, a tenant
-read out of the URL and a policy with a branch that returns nil for
-administrators "for now". None of those is how this works, and the last one is
-not a style disagreement — it is the hole every application installing the
-package would inherit.
+The audience of the first three is somebody changing the package. The common
+failure modes are a provider, a container lookup, a CRUD Repository beside the
+Model, a tenant read from the URL, or a Policy branch that returns nil for
+administrators "for now". None belongs here, and the last three are security
+failures rather than style disagreements.
 
-The rest of the answer is that the package is built to be checked rather than
-trusted. The suite runs against a database handle that wraps nothing, so a
-statement that ran would panic; every refusal it asserts is therefore proof that
-the refusal happened before the query. An assistant that runs
-`go test -race ./...` is not guessing.
+The package is built to be checked rather than trusted. Its denial tests use a
+nil database, so reaching even the configured Model before authorization
+panics. The structural twin reads every exported Service method and checks the
+same order on the allowed path. Running `go test -race ./...` exercises both.
 
 ## Adding your own
 

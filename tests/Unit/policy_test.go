@@ -2,14 +2,13 @@ package unit_test
 
 import (
 	"context"
-	"database/sql"
-	"database/sql/driver"
 	"errors"
 	"strings"
 	"testing"
 
 	"github.com/arandu-io/framework/data"
 	"github.com/arandu-io/framework/security"
+	"github.com/arandu-io/hesape/database/model"
 
 	skeleton "github.com/arandu-io/package-skeleton"
 )
@@ -18,15 +17,15 @@ import (
 // are checked against the code rather than described in a document:
 //
 //  1. the policy denies every action, and has no branch that allows one;
-//  2. the repository refuses a Grant that was never issued, and one issued for
-//     another action;
+//  2. the service authorizes before constructing or executing a Model query;
 //  3. the tenant comes from the Grant;
 //  4. nothing reaches the database without passing through the first two.
 //
 // The fourth is checked by the handle these tests pass in. It wraps a nil
 // *sql.DB, so any statement that were issued would panic and fail the test
-// loudly -- which makes "the refusal happened before the query" a fact the
-// suite proves rather than a comment.
+// loudly -- which makes "the refusal happened before the Model" a fact the
+// suite proves rather than a comment. The structural twin in audit_test.go
+// keeps that order visible on every service method, including an allowed path.
 
 // everyAction is the whole set the policy answers about. A test that listed
 // four of five would pass while the fifth was open.
@@ -106,58 +105,57 @@ func TestAuthorizeRefusesASubjectThatIsNobody(t *testing.T) {
 // nilHandle is a handle over no database.
 //
 // Any statement issued through it panics, which is what makes these tests
-// prove that the refusal came first: a repository that checked the Grant after
-// running the query would crash here rather than pass.
+// prove that the refusal came first: a service that reached the Model before
+// authorizing would crash here rather than pass.
 func nilHandle() *data.DB { return data.Wrap(nil, data.DialectSQLite) }
 
-func TestTheRepositoryRefusesAGrantThatWasNeverIssued(t *testing.T) {
+func TestTheServiceRefusesBeforeReachingTheModel(t *testing.T) {
 	t.Parallel()
 
-	repo := skeleton.NewSkeletonRepository(nilHandle())
+	// A nil handle makes even construction of Skeletons panic at
+	// GetQueryGrammar. This catches moving the configured Model entry point --
+	// not only its terminal -- ahead of authorization.
+	service := skeleton.NewSkeletonService(nil)
 	ctx := context.Background()
-	var none security.Grant
 
-	if _, err := repo.Find(ctx, none, "record-1"); !errors.Is(err, security.ErrForbidden) {
-		t.Fatalf("Find accepted the zero Grant: %v", err)
+	if _, err := service.Find(ctx, administrator(), "record-1"); !errors.Is(err, security.ErrForbidden) {
+		t.Fatalf("Find reached the Model before the policy refusal: %v", err)
 	}
-	if _, err := repo.List(ctx, none, data.Query{}); !errors.Is(err, security.ErrForbidden) {
-		t.Fatalf("List accepted the zero Grant: %v", err)
+	if _, err := service.List(ctx, administrator(), data.Query{}); !errors.Is(err, security.ErrForbidden) {
+		t.Fatalf("List reached the Model before the policy refusal: %v", err)
 	}
-	if _, err := repo.Create(ctx, none, skeleton.Skeleton{Name: "one"}); !errors.Is(err, security.ErrForbidden) {
-		t.Fatalf("Create accepted the zero Grant: %v", err)
-	}
-	if _, err := repo.Update(ctx, none, skeleton.Skeleton{ID: "record-1"}); !errors.Is(err, security.ErrForbidden) {
-		t.Fatalf("Update accepted the zero Grant: %v", err)
-	}
-	if err := repo.Delete(ctx, none, "record-1"); !errors.Is(err, security.ErrForbidden) {
-		t.Fatalf("Delete accepted the zero Grant: %v", err)
+	if _, err := service.Create(ctx, administrator(), skeleton.CreateRequest{Name: "one"}); !errors.Is(err, security.ErrForbidden) {
+		t.Fatalf("Create reached the Model before the policy refusal: %v", err)
 	}
 }
 
-func TestTheRepositoryRefusesAGrantIssuedForAnotherAction(t *testing.T) {
+func TestSkeletonsReturnsAWiredTenantScopedModel(t *testing.T) {
 	t.Parallel()
 
-	repo := skeleton.NewSkeletonRepository(nilHandle())
-
-	// A valid Grant, for the wrong thing. This is the copy-paste between two
-	// repository methods, and it is caught by the Check rather than by review.
-	toDelete := security.SystemGrant(skeleton.SkeletonDelete, "acme")
-
-	if _, err := repo.Find(context.Background(), toDelete, "record-1"); !errors.Is(err, security.ErrForbidden) {
-		t.Fatalf("Find accepted a Grant issued for %s: %v", skeleton.SkeletonDelete, err)
+	rows := skeleton.Skeletons(nilHandle())
+	if rows.GetTable() != "skeletons" {
+		t.Fatalf("Skeletons table = %q, want skeletons", rows.GetTable())
+	}
+	if rows.KeyType != "string" || rows.Incrementing {
+		t.Fatalf("Skeletons key is type %q, incrementing %t; want application-generated text", rows.KeyType, rows.Incrementing)
+	}
+	if rows.TenantColumn != "tenant_id" {
+		t.Fatalf("Skeletons tenant column = %q, want tenant_id", rows.TenantColumn)
+	}
+	if model.ModelOf(rows.Entity) != rows {
+		t.Fatal("Skeletons returned an entity whose embedded Model is not wired to it")
 	}
 }
 
 func TestASystemGrantWithoutATenantReachesNothing(t *testing.T) {
 	t.Parallel()
 
-	// A system grant with no tenant is not a grant over every customer: it is
-	// the zero Grant, and it passes no check. The tenant of work that runs
-	// outside a request comes from the job, the task or the row that caused it.
-	repo := skeleton.NewSkeletonRepository(nilHandle())
-
-	if _, err := repo.Find(context.Background(), security.SystemGrant(skeleton.SkeletonView, ""), "record-1"); !errors.Is(err, security.ErrForbidden) {
-		t.Fatalf("a system grant with no tenant reached the table: %v", err)
+	// A system grant with no tenant names no customer. The Model refuses it
+	// while preparing the query, before the nil handle can issue a statement.
+	_, err := skeleton.Skeletons(nilHandle()).NewQuery().WhereKey("record-1").First(
+		context.Background(), security.SystemGrant(skeleton.SkeletonView, ""))
+	if !errors.Is(err, model.ErrNoTenant) {
+		t.Fatalf("a system grant with no tenant returned %v, want ErrNoTenant", err)
 	}
 }
 
@@ -175,90 +173,6 @@ func TestTheTenantComesFromTheGrant(t *testing.T) {
 	if got := data.Tenant(security.Grant{}); got != "" {
 		t.Fatalf("the zero Grant carries the tenant %q, want none", got)
 	}
-}
-
-func TestUpdatePropagatesARowsAffectedFailure(t *testing.T) {
-	t.Parallel()
-
-	repo := repositoryReturning(t, rowsAffectedFailure{err: errRowsAffected})
-	grant := security.SystemGrant(skeleton.SkeletonUpdate, "acme")
-
-	if _, err := repo.Update(context.Background(), grant, skeleton.Skeleton{ID: "record-1", Name: "one"}); !errors.Is(err, errRowsAffected) {
-		t.Fatalf("Update returned %v, want the driver's RowsAffected failure", err)
-	}
-}
-
-func TestDeletePropagatesARowsAffectedFailure(t *testing.T) {
-	t.Parallel()
-
-	repo := repositoryReturning(t, rowsAffectedFailure{err: errRowsAffected})
-	grant := security.SystemGrant(skeleton.SkeletonDelete, "acme")
-
-	if err := repo.Delete(context.Background(), grant, "record-1"); !errors.Is(err, errRowsAffected) {
-		t.Fatalf("Delete returned %v, want the driver's RowsAffected failure", err)
-	}
-}
-
-func TestUpdateReturnsTheTenantFromTheGrant(t *testing.T) {
-	t.Parallel()
-
-	repo := repositoryReturning(t, driver.RowsAffected(1))
-	grant := security.SystemGrant(skeleton.SkeletonUpdate, "acme")
-	record := skeleton.Skeleton{ID: "record-1", TenantID: "request-tenant", Name: "one"}
-
-	updated, err := repo.Update(context.Background(), grant, record)
-	if err != nil {
-		t.Fatalf("Update failed: %v", err)
-	}
-	if updated.TenantID != "acme" {
-		t.Fatalf("Update returned tenant %q from its argument, want tenant %q from the Grant", updated.TenantID, "acme")
-	}
-}
-
-type resultConnector struct{ result driver.Result }
-
-var errRowsAffected = errors.New("test driver could not report affected rows")
-
-type rowsAffectedFailure struct{ err error }
-
-func (r rowsAffectedFailure) LastInsertId() (int64, error) { return 0, nil }
-
-func (r rowsAffectedFailure) RowsAffected() (int64, error) { return 0, r.err }
-
-func (c resultConnector) Connect(context.Context) (driver.Conn, error) {
-	return &resultConnection{result: c.result}, nil
-}
-
-func (c resultConnector) Driver() driver.Driver { return resultDriver{result: c.result} }
-
-type resultDriver struct{ result driver.Result }
-
-func (d resultDriver) Open(string) (driver.Conn, error) {
-	return &resultConnection{result: d.result}, nil
-}
-
-type resultConnection struct{ result driver.Result }
-
-func (c *resultConnection) Prepare(string) (driver.Stmt, error) {
-	return nil, errors.New("the test connection only accepts ExecContext")
-}
-
-func (*resultConnection) Close() error { return nil }
-
-func (*resultConnection) Begin() (driver.Tx, error) {
-	return nil, errors.New("the test connection does not accept transactions")
-}
-
-func (c *resultConnection) ExecContext(context.Context, string, []driver.NamedValue) (driver.Result, error) {
-	return c.result, nil
-}
-
-func repositoryReturning(t *testing.T, result driver.Result) *skeleton.SkeletonRepository {
-	t.Helper()
-
-	db := sql.OpenDB(resultConnector{result: result})
-	t.Cleanup(func() { _ = db.Close() })
-	return skeleton.NewSkeletonRepository(data.Wrap(db, data.DialectSQLite))
 }
 
 func TestTheRequestValidatesItsInput(t *testing.T) {

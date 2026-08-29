@@ -1,6 +1,6 @@
 // Package skeleton is an Arandu module: one entity, one policy that decides
-// about it, one repository that is the only door to its table, and the routes
-// that reach them.
+// about it, one service that owns its Model-first data path, and the routes that
+// reach them.
 //
 // The files are laid out by role rather than by layer, so the whole package
 // reads top to bottom:
@@ -9,8 +9,7 @@
 //	config.go      -> what the application passes in
 //	model.go       -> the entity, and what it may answer with
 //	policy.go      -> who may do what
-//	repository.go  -> data access, which requires a Grant
-//	service.go     -> the rules, and the only path a handler may take
+//	service.go     -> the rules and Model access, after authorization
 //
 // An application registers it explicitly. There is no service provider, no
 // container and no discovery: the wiring is three lines somebody wrote, and
@@ -76,7 +75,7 @@ func New(cfg Config, db *data.DB, sessions *security.SessionStore) (*Module, err
 	cfg = cfg.withDefaults()
 	return &Module{
 		cfg:      cfg,
-		svc:      NewSkeletonService(NewSkeletonRepository(db)),
+		svc:      NewSkeletonService(db),
 		sessions: sessions,
 	}, nil
 }
@@ -99,9 +98,9 @@ func (m *Module) Routes(r *fhttp.Router) {
 }
 
 // Handlers are thin on purpose: read the input, ask the service, answer. No
-// rule and no statement lives here. A handler that reached the repository would
-// be a handler that skipped the policy, and the layout is what makes that
-// visible rather than the type system.
+// rule, database handle or Model construction lives here. A handler that
+// reached data directly would skip the service's policy boundary, and the
+// layout makes that visible rather than relying on review.
 
 // index answers a page of records.
 func (m *Module) index(ctx *fhttp.Context) error {
@@ -123,7 +122,7 @@ func (m *Module) index(ctx *fhttp.Context) error {
 	if len(records) == m.cfg.PageSize {
 		cursor = records[len(records)-1].ID
 	}
-	return ctx.JSON(stdhttp.StatusOK, NewCollection(records, cursor))
+	return ctx.JSON(stdhttp.StatusOK, collectionFromPointers(records, cursor))
 }
 
 // show answers one record.
@@ -132,7 +131,7 @@ func (m *Module) show(ctx *fhttp.Context) error {
 	if err != nil {
 		return m.answer(ctx, err)
 	}
-	return ctx.JSON(stdhttp.StatusOK, NewResource(record))
+	return ctx.JSON(stdhttp.StatusOK, resourceFromPointer(record))
 }
 
 // store creates one record.
@@ -143,7 +142,7 @@ func (m *Module) store(ctx *fhttp.Context) error {
 	if err != nil {
 		return m.answer(ctx, err)
 	}
-	return ctx.JSON(stdhttp.StatusCreated, NewResource(record))
+	return ctx.JSON(stdhttp.StatusCreated, resourceFromPointer(record))
 }
 
 // subject reads who is acting from the session, and from nowhere else.

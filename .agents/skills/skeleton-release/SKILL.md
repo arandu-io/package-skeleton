@@ -41,6 +41,12 @@ CI runs the same four. It also runs `go vet configure.go` by name while the
 template section is still in the workflow, because the build tag on that file
 keeps it out of `./...`.
 
+The template has two build subjects, and both are release gates: the raw clone
+and a clean copy after `configure.go` substitutes every name. Run build, vet,
+and race on both. Preserve a built configurator long enough to invoke it again
+inside the configured copy; it must refuse and the tree hash must be identical
+before and after that refusal.
+
 ## What the manifest declares, and who reads it
 
 `arandu.mod.toml` is a promise, and the check that gives it weight runs here.
@@ -128,6 +134,12 @@ build that stops in somebody else's repository, weeks later, when they upgrade,
 with an error about a struct literal they did not write. Say what it was, what
 it is, and what they have to write instead.
 
+Run `apidiff` against the release baseline and enumerate every removal. A move
+from CRUD Repository to Model-first normally removes the Repository type,
+constructor and methods and changes Service constructors/results to database
+and entity pointers. Keeping `ErrNotFound` in `model.go` is not a removal just
+because its source file changed.
+
 Three changes break an installer without touching a signature, and each one is
 worth a line in the changelog:
 
@@ -143,6 +155,7 @@ worth a line in the changelog:
 
 Not in an issue and not in a pull request. `SECURITY.md` has the private
 advisory address. Anything that lets a caller reach data a policy did not
-authorize is in scope — a path from a handler to the repository that skips the
-policy, a statement not scoped by `data.Tenant(g)`, a `Grant` produced without a
-policy returning nil, a field reaching a response that `Resource` does not list.
+authorize is in scope — a handler that reaches a Model or database directly, a
+Model terminal before `Authorize`, disabled tenant scope, a `Grant` produced
+without a Policy returning nil, or a field reaching a response that `Resource`
+does not list.

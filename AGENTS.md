@@ -53,8 +53,9 @@ around them.
 <!-- configure:template-end -->
 # Working on :package_name
 
-This is an Arandu package: one entity, one policy that decides about it, one
-repository that is the only door to its table, and the routes that reach them.
+This is an Arandu package: one entity with an embedded Hesape Model, one policy
+that decides about it, one service that owns the database handle, and the routes
+that reach them.
 It is a Go module somebody `go get`s and registers by hand in their own
 `bootstrap/app.go`, which is the whole difference from working in an
 application. There is no service provider, no container and no discovery — if a
@@ -114,8 +115,8 @@ this one must prove about itself it proves in its own suite or nowhere.
 
 | | measured with |
 | --- | --- |
-| 6 Go files, one per role, all in one package at the root | `grep -l '^package skeleton' *.go` |
-| 4 test files, 27 tests | `find tests -name '*_test.go'` · `go test -count=1 ./... -v \| grep -c '^--- PASS'` |
+| 5 Go files, one per role, all in one package at the root | `grep -l '^package skeleton' *.go` |
+| 4 test files, 25 tests | `find tests -name '*_test.go'` · `go test -count=1 ./... -v \| grep -c '^--- PASS'` |
 | 3 routes | `grep -c 'r.Action' module.go` |
 | 5 actions the policy answers about | `grep -cE '^\t[A-Za-z]+ security.Action = ' policy.go` |
 | 2 direct dependencies, both under `arandu-io` | `go list -m -f '{{if and (not .Indirect) (not .Main)}}{{.Path}} {{.Version}}{{end}}' all` |
@@ -127,9 +128,14 @@ module.go      registration, routes, handlers and migrations
 config.go      what the application passes in
 model.go       the entity, and what it may answer with
 policy.go      who may do what
-repository.go  data access, which requires a Grant
-service.go     the rules, and the only path a handler may take
+service.go     the rules and authorized Model access
 ```
+
+`Skeletons(db)` configures the table, string primary key and default
+`tenant_id` scope. Its terminals return `*Skeleton`/`[]*Skeleton`; keep those
+pointers intact because copying an embedded Model leaves its `Entity` pointer
+aimed at the original allocation. `Resource` and `Collection` are the deliberate
+response snapshot boundary.
 
 ## What does not exist here
 
@@ -140,7 +146,7 @@ rejected in review. None of them is missing by accident.
 | --- | --- |
 | a service provider, a container, a `Register()` that discovers things | `New(cfg, db, sessions)`, called by hand in the installer's `bootstrap/app.go`. Everything the package touches is a parameter |
 | a global `DB`, an `init()` that opens a connection | the `*data.DB` handed to `New`. A package that opened its own connection would be a package the application cannot point at a test database |
-| a model with `Save()`, `Find()` or a database handle on it | `SkeletonRepository`, which takes a `Grant` before it takes an identifier |
+| a CRUD Repository beside the Model | `Skeletons(db)`, reached only by `SkeletonService` after `security.Authorize` |
 | a tenant read from the path, the body, the query or a header | `data.Tenant(g)`, from the Grant, which came from the session |
 | a permit-all branch in the policy "for now" | nothing. The policy denies, and an action is opened by writing the rule that opens it |
 | an `interface{}` config, a map of options, an env var read at call time | the typed `Config` struct, validated by `New` |
@@ -154,24 +160,25 @@ one of them is not merged, whatever else it improves. `tests/Unit/policy_test.go
 checks all four against the code.
 
 1. **The policy denies by default**, and has no branch that allows an action.
-   `TestThePolicyDeniesEveryActionByDefault` at `tests/Unit/policy_test.go:46`
-   walks every action with an administrator subject and requires
+   `TestThePolicyDeniesEveryActionByDefault` walks every action with an
+   administrator subject and requires
    `security.ErrForbidden` from each.
-2. **The repository takes the `Grant` before the identifier**, and opens with
-   `g.Check`. `TestTheRepositoryRefusesAGrantThatWasNeverIssued:111` and
-   `TestTheRepositoryRefusesAGrantIssuedForAnotherAction:135` hold it there.
+2. **Every Service method authorizes before it reaches the Model.**
+   `TestEveryServiceMethodAuthorizesBeforeTheModel` checks the source, and
+   `TestTheServiceRefusesBeforeReachingTheModel` gives the Service a nil handle
+   so even constructing `Skeletons` in the wrong order fails.
 3. **The tenant comes from `data.Tenant(g)`**, on every path, read and write.
-   `TestTheTenantComesFromTheGrant:162`.
-4. **Nothing reaches the database without passing the first two.** The suite
-   passes `data.Wrap(nil, data.DialectSQLite)` — a handle over no database — so
-   a statement that ran would panic. Every refusal the suite asserts is
-   therefore proof that the refusal came before the query.
+   `TestTheTenantComesFromTheGrant` and
+   `TestTheServiceWritesTenantOnlyFromTheGrant` hold both halves.
+4. **Nothing reaches the Model without passing the first two.** The denial
+   suite constructs the Service with a nil database, so a call to
+   `Skeletons(nil)` would panic. Every refusal it asserts is therefore proof
+   that authorization happened before Model construction.
 
 `policy_test.go` holds those four by calling the code. `tests/Unit/audit_test.go`
-holds the same shape by *reading* it, on every function rather than on the five
-that exist today: a statement issued with no Grant, a Grant taken after the
-identifier, a `Check` whose answer is discarded, a tenant read out of the
-request, a repository reached before the policy answered.
+holds the same shape by *reading* it: every exported Service method must call
+`Authorize` before its first `Skeletons`, every tenant write in the Service
+comes from `data.Tenant(g)`, and no tenant accessor reads request input.
 
 It also compares `arandu.mod.toml` against what the code *calls* —
 `os.WriteFile`, `exec.Command`, `http.Get`, a method named `Migrations` — rather
@@ -189,9 +196,9 @@ configuration, and `/_arandu/` is refused when the application boots — in the
 installer's process, after publication.
 
 What the audit does not reach is written at the top of the file it lives in. It
-reads syntax, so a call made through a value of interface type, or a statement
-assembled out of a package-level variable, is invisible to it. A green run means
-no such thing was found written down, not that none exists.
+reads syntax, so dynamic dispatch, reflection, and wrappers around the named
+seams are invisible to it. A green run means no such thing was found written
+down, not that none exists.
 
 ## Writing code
 

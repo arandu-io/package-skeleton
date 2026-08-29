@@ -1,6 +1,6 @@
 ---
 name: skeleton-policy
-description: Decide who may do what in this Arandu package, and open an action that is currently closed. Use when the request is to "open the policy", "let admins read this", "allow the owner to edit", "add an action", "add a permission", "everything returns 403", "the tests say ErrForbidden", "add a method to the repository", "why does Find authorize twice", "filter the listing by owner", or when a change touches policy.go, repository.go or service.go. Covers the Grant, the custom block that survives regeneration, what g.Check catches, why the tenant is never read from the request, and the three shapes that look like authorization and are not.
+description: Decide who may do what in this Arandu package, and open an action that is currently closed. Use when the request is to "open the policy", "let admins read this", "allow the owner to edit", "add an action", "add a permission", "everything returns 403", "the tests say ErrForbidden", "add a Model-backed service method", "why does Find authorize twice", "filter the listing by owner", or when a change touches policy.go or service.go. Covers the Grant, authorization before the Model, the custom block that survives regeneration, why the tenant is never read from the request, and the three shapes that look like authorization and are not.
 license: MIT
 ---
 
@@ -18,8 +18,8 @@ Four things happen, in this order, and each one is a different file.
 1. `service.go` validates the input. A rejected input never reaches a policy.
 2. `service.go` calls `security.Authorize(ctx, s.policy, actor, ACTION, record)`.
 3. `policy.go` `Can` returns nil, or the reason it will not.
-4. Only then does a `security.Grant` exist, and `repository.go` will not run a
-   statement without one.
+4. Only then does a `security.Grant` exist, and `service.go` reaches
+   `Skeletons(s.db)` and a Model terminal with it.
 
 The Grant is the mechanism, and it is worth knowing exactly how much it
 guarantees. `Authorize` is the only function in the framework that returns a
@@ -31,6 +31,11 @@ as `system-grant-outside-scope` when it appears in a handler, and
 `system-grant-without-tenant` when it is called with an empty tenant. A lint,
 not the type system, and one that never runs over an installed package. Nothing
 here reports it either. Do not reach for it in this package.
+
+The Model requires a Grant and applies its tenant, but it does not decide which
+Policy action that Grant represents. `security.Authorize` before the first
+`Skeletons(s.db)` call is therefore mandatory even though the terminal itself
+also takes `g`.
 
 ## The procedure
 
@@ -99,25 +104,23 @@ suite doing its job. Change them to assert the rule you wrote — which subject 
 allowed, which is still refused — rather than removing the action from
 `everyAction`.
 
-## Adding a repository method
+## Adding a Model-backed service method
 
-Every method opens with `g.Check(THE_ACTION)`, and it is not a formality. The
-Grant records which action it was issued for, so `Check` fails on three
-different mistakes with three different messages: the zero Grant (`missing grant
-for skeleton.view (call auth.Authorize first)`), a `SystemGrant` that was
-refused, and a Grant issued for another action (`grant issued for
-skeleton.delete, used on skeleton.view`). The third is the copy-paste between
-two repository methods, and it is caught here rather than in review —
-`TestTheRepositoryRefusesAGrantIssuedForAnotherAction:135`.
+`SkeletonService` owns `db *data.DB`. Validate first, build the value the Policy
+must see, call `security.Authorize`, and only then call `Skeletons(s.db)`.
+`TestEveryServiceMethodAuthorizesBeforeTheModel` reads every exported Service
+method and refuses the opposite order; the runtime twin uses a nil database so
+even constructing the Model early fails.
 
-The signature is `(ctx, g, id)` and the order is the mechanism. A caller cannot
-name a record without first holding a decision about it, and cannot leave the
-decision out, because the call does not compile without it.
+Create builds a wired entity through `NewInstance`, keeps its pointer, writes
+`TenantID` from `data.Tenant(g)`, and calls `Save(ctx, g)`. Find and Get return
+pointers too. Copying an entity with an embedded Model leaves its `Entity`
+pointer aimed at the old allocation.
 
-`data.Repository[T, ID]` requires all five methods — `Find`, `List`, `Create`,
-`Update`, `Delete` — so the compile-time assertion in `repository.go` fails if
-one is dropped, even one the package has no route for. Keep the method and its
-`g.Check`; a repository with a hole in it is not a smaller repository.
+CRUD does not get a Repository beside this path. A Repository is an optional
+specialization for a genuinely complex query, read model, report, export or raw
+SQL contract; it remains below the Service and does not wrap the Model's common
+Find, Get, Save or Delete terminals.
 
 ## Reads are authorized like writes
 
@@ -130,8 +133,8 @@ people delete:
 
 ```go
 	g, err := security.Authorize(ctx, s.policy, actor, SkeletonView, Skeleton{})
-	record, err := s.repo.Find(ctx, g, id)
-	_, err = security.Authorize(ctx, s.policy, actor, SkeletonView, record)
+	record, err := Skeletons(s.db).NewQuery().WhereKey(id).First(ctx, g)
+	_, err = security.Authorize(ctx, s.policy, actor, SkeletonView, *record)
 ```
 
 The first call sees an empty value, so every rule about the record itself —
@@ -145,8 +148,9 @@ what keeps the policy honest.
 A policy call per record would be one call per row of a page and would still not
 narrow the query — a listing that has to read a customer's rows in order to
 decide it may not read them has already read them. **A rule that hides
-individual records from a listing belongs in the statement, as a predicate**,
-beside the tenant filter. The action decides whether the listing runs at all.
+individual records from a listing belongs in the Builder query, as a
+predicate**, beside the tenant filter. The action decides whether the listing
+runs at all.
 
 ## Three shapes that look like authorization and are not
 
@@ -158,9 +162,8 @@ beside the tenant filter. The action decides whether the listing runs at all.
   not come from a Grant is `Config.Tenant`, which is the customer a visitor with
   no session is read as, and it comes from the application's own configuration.
 - **A check in the handler.** `module.go` handlers read the input, ask the
-  service and answer. A handler that reached the repository would be a handler
-  that skipped the policy, and nothing in the type system would object — the
-  Grant is what objects, and only if it is absent.
+  service and answer. A handler that held the database or constructed a Model
+  would skip the policy boundary, and nothing in the type system would object.
 - **A refusal that explains itself to the client.** `answer` in `module.go`
   sends a status and `"forbidden"`. Telling the client why a policy said no is
   telling them what exists and what does not, one request at a time. The reason

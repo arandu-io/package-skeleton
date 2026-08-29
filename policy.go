@@ -39,14 +39,14 @@ const (
 type SkeletonPolicy struct{}
 
 // Compile-time proof that the policy answers about this entity and no other. A
-// policy that drifted onto another type would leave this one unguarded, and the
-// repository would still compile.
+// policy that drifted onto another type would leave this one unguarded while
+// the Model path still compiled.
 var _ security.Policy[Skeleton] = SkeletonPolicy{}
 
 // Can decides whether the subject may perform the action on the record.
 //
-// It is the only place that decides. Nothing reaches the repository without a
-// Grant, and the only way to obtain a Grant is for this method to return nil.
+// It is the only place that decides. The service reaches the Model only after
+// Authorize turns this method's nil result into a Grant.
 func (SkeletonPolicy) Can(ctx context.Context, s security.Subject, a security.Action, record Skeleton) error {
 	// Tenant isolation comes first and applies to every action. Without it every
 	// check below would be pointless in a multi-tenant system: a rule that

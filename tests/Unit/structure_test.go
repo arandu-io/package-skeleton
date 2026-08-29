@@ -49,8 +49,8 @@ func TestTheApplicationIntegrationHasOneCompositionFile(t *testing.T) {
 }
 
 // TestThePackageHasOneOwnerPerResponsibility freezes the application shapes
-// this package is allowed to introduce. Repository and Model stay untouched:
-// this guard covers composition and orchestration, not the data-path migration.
+// this package is allowed to introduce, including one Service owner for Model
+// access and no parallel composition abstraction.
 func TestThePackageHasOneOwnerPerResponsibility(t *testing.T) {
 	t.Parallel()
 
@@ -77,6 +77,84 @@ func TestThePackageHasOneOwnerPerResponsibility(t *testing.T) {
 
 	inspectExplicitComposition(t, root)
 	inspectServiceBoundary(t, root)
+}
+
+// TestThePackageUsesTheModelFirstDataPath freezes the package shape promised to
+// every configured copy: the entity embeds the public Model, the Service owns
+// the database handle, and CRUD does not grow a Repository layer of its own.
+func TestThePackageUsesTheModelFirstDataPath(t *testing.T) {
+	t.Parallel()
+
+	root := packageRoot(t)
+	if _, err := os.Lstat(filepath.Join(root, "repository.go")); err == nil {
+		t.Error("repository.go still exists; CRUD belongs to the Model-first path")
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("checking repository.go: %v", err)
+	}
+
+	wants := map[string][]string{
+		"model.go": {
+			`"github.com/arandu-io/hesape/database/model"`,
+			"model.Model[Skeleton]",
+			"func Skeletons(db *data.DB) *model.Model[Skeleton]",
+		},
+		"service.go": {
+			"db     *data.DB",
+			"func NewSkeletonService(db *data.DB) *SkeletonService",
+			"Skeletons(s.db)",
+			") (*Skeleton, error)",
+			") ([]*Skeleton, error)",
+		},
+		"module.go": {
+			"NewSkeletonService(db)",
+		},
+	}
+	for path, required := range wants {
+		body, err := os.ReadFile(filepath.Join(root, path))
+		if err != nil {
+			t.Fatalf("reading %s: %v", path, err)
+		}
+		for _, want := range required {
+			if !strings.Contains(string(body), want) {
+				t.Errorf("%s does not contain %q", path, want)
+			}
+		}
+	}
+}
+
+// TestTheGuidesTeachTheModelFirstBoundary keeps configured packages from
+// inheriting the retired CRUD shape through their local instructions.
+func TestTheGuidesTeachTheModelFirstBoundary(t *testing.T) {
+	t.Parallel()
+
+	root := packageRoot(t)
+	guides := map[string][]string{
+		"AGENTS.md":                {"Skeletons(db)", "security.Authorize"},
+		"README.md":                {"Skeletons(db)", "Model terminal"},
+		"CONTRIBUTING.md":          {"Skeletons(db)", "authorizes before reaching the Model"},
+		"SECURITY.md":              {"Model terminal", "data.Tenant(g)"},
+		".agents/skills/README.md": {"CRUD Repository", "configured Model"},
+		".agents/skills/skeleton-module/SKILL.md":  {"func Skeletons", "security.Authorize"},
+		".agents/skills/skeleton-policy/SKILL.md":  {"security.Authorize", "Skeletons("},
+		".agents/skills/skeleton-release/SKILL.md": {"Model-first", "configured copy"},
+	}
+	for path, required := range guides {
+		body, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(path)))
+		if err != nil {
+			t.Fatalf("reading %s: %v", path, err)
+		}
+		text := string(body)
+		for _, want := range required {
+			if !strings.Contains(text, want) {
+				t.Errorf("%s does not teach %q", path, want)
+			}
+		}
+		for _, stale := range []string{"SkeletonRepository", "NewSkeletonRepository", "repository.go  data access"} {
+			if strings.Contains(text, stale) {
+				t.Errorf("%s still teaches the retired CRUD surface %q", path, stale)
+			}
+		}
+	}
 }
 
 // inspectExplicitComposition rejects the names that would make registration

@@ -4,7 +4,6 @@ import (
 	"go/ast"
 	"go/build/constraint"
 	"go/token"
-	"go/types"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,11 +24,11 @@ import (
 // it. These tests read this package's own Go files as syntax and hold four
 // properties:
 //
-//  1. every function that issues a statement takes a Grant, takes it first, and
-//     checks it before the statement;
+//  1. every exported Service method calls Authorize before it reaches the
+//     configured Model;
 //  2. the tenant comes from the Grant, and nothing a request carried is read as
 //     one;
-//  3. nothing reaches a repository without the policy having answered;
+//  3. the Model remains tenant-scoped and CRUD does not grow a second data path;
 //  4. what arandu.mod.toml declares is what the code does.
 //
 // The fifth is held where the routes exist rather than here, because a prefix
@@ -38,12 +37,11 @@ import (
 // registers the module and reads the table back.
 //
 // What these tests do not reach is worth as much as what they do. They read
-// syntax: a call made through a variable of interface type, a statement
-// assembled out of a package-level variable, and anything reached by reflection
-// are all invisible to them. A green run means no such thing was found written
-// down, not that none exists. What is absolute is what the compiler holds
-// alongside them -- a method with no Grant in its signature does not acquire one
-// at runtime.
+// syntax: a call hidden behind an interface, a wrapper around the named Model
+// entry point, and anything reached by reflection are all invisible to them. A
+// green run means no such thing was found written down, not that none exists.
+// What is absolute is what the compiler holds alongside them -- a Model terminal
+// with no Grant in its call does not compile.
 
 // buildable reports whether the compiler ever reads this file.
 //
@@ -88,167 +86,6 @@ func auditedFiles(t *testing.T) []parsedGoFile {
 	return out
 }
 
-// handleCalls are the calls that put a statement on the wire under a name that
-// cannot mean anything else.
-//
-// The short spellings -- Query, Exec -- are deliberately absent: ctx.Query
-// reads a query string, and a rule that cannot tell the two apart is a rule an
-// author switches off. What they would have caught is caught by the SQL
-// instead, which is the more honest signal anyway.
-var handleCalls = map[string]bool{
-	"QueryContext":    true,
-	"QueryRowContext": true,
-	"ExecContext":     true,
-	"BeginTx":         true,
-	"Transaction":     true,
-}
-
-// reachesData reports whether a call issues a statement, either by the name of
-// a handle method or by carrying SQL.
-func reachesData(call *ast.CallExpr) bool {
-	if selector, ok := call.Fun.(*ast.SelectorExpr); ok && handleCalls[selector.Sel.Name] {
-		return true
-	}
-	for _, argument := range call.Args {
-		if carriesSQL(argument) {
-			return true
-		}
-	}
-	return false
-}
-
-// carriesSQL reports whether an expression opens with a statement keyword.
-//
-// It reads the leftmost literal of a concatenation, which is where the verb
-// is. A column list held in a constant is joined onto "SELECT " and never
-// starts one, so following the left edge is what makes a built statement
-// readable without evaluating it.
-func carriesSQL(expression ast.Expr) bool {
-	for {
-		binary, ok := expression.(*ast.BinaryExpr)
-		if !ok || binary.Op != token.ADD {
-			break
-		}
-		expression = binary.X
-	}
-	literal, ok := expression.(*ast.BasicLit)
-	if !ok || literal.Kind != token.STRING {
-		return false
-	}
-
-	text := strings.ToLower(strings.TrimSpace(strings.Trim(literal.Value, "`\"")))
-	for _, verb := range []string{"select ", "insert ", "update ", "delete ", "with "} {
-		if strings.HasPrefix(text, verb) {
-			return true
-		}
-	}
-	return false
-}
-
-// firstReach is where a body issues its first statement, and whether it issues
-// one at all.
-func firstReach(body *ast.BlockStmt) (token.Pos, bool) {
-	found := token.NoPos
-	ast.Inspect(body, func(node ast.Node) bool {
-		call, ok := node.(*ast.CallExpr)
-		if !ok || !reachesData(call) {
-			return true
-		}
-		if found == token.NoPos || call.Pos() < found {
-			found = call.Pos()
-		}
-		return true
-	})
-	return found, found != token.NoPos
-}
-
-// grantParameter is the name of the Grant a function takes and where it sits in
-// the signature.
-func grantParameter(function *ast.FuncDecl) (name string, position int, found bool) {
-	index := 0
-	for _, field := range function.Type.Params.List {
-		names := field.Names
-		if len(names) == 0 {
-			names = []*ast.Ident{{Name: "_"}}
-		}
-		for _, identifier := range names {
-			if namedType(field.Type) == "Grant" {
-				return identifier.Name, index, true
-			}
-			index++
-		}
-	}
-	return "", 0, false
-}
-
-// contextFirst reports whether the signature opens with a context, which is the
-// one parameter allowed to precede the Grant.
-func contextFirst(function *ast.FuncDecl) bool {
-	parameters := function.Type.Params.List
-	return len(parameters) > 0 && namedType(parameters[0].Type) == "Context"
-}
-
-// checkCalls returns where the named Grant is checked, and where the answer is
-// thrown away.
-func checkCalls(body *ast.BlockStmt, grant string) (asked, discarded []token.Pos) {
-	isCheck := func(node ast.Node) (*ast.CallExpr, bool) {
-		call, ok := node.(*ast.CallExpr)
-		if !ok {
-			return nil, false
-		}
-		selector, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok || selector.Sel.Name != "Check" {
-			return nil, false
-		}
-		receiver, ok := selector.X.(*ast.Ident)
-		return call, ok && receiver.Name == grant
-	}
-
-	ast.Inspect(body, func(node ast.Node) bool {
-		switch node := node.(type) {
-		case *ast.AssignStmt:
-			for _, value := range node.Rhs {
-				if call, ok := isCheck(value); ok && allBlank(node.Lhs) {
-					discarded = append(discarded, call.Pos())
-				}
-			}
-		case *ast.ExprStmt:
-			// A bare call is the same discard written shorter.
-			if call, ok := isCheck(node.X); ok {
-				discarded = append(discarded, call.Pos())
-			}
-		}
-		if call, ok := isCheck(node); ok {
-			asked = append(asked, call.Pos())
-		}
-		return true
-	})
-	return asked, discarded
-}
-
-// allBlank reports whether every target of an assignment is the blank
-// identifier.
-func allBlank(targets []ast.Expr) bool {
-	for _, target := range targets {
-		identifier, ok := target.(*ast.Ident)
-		if !ok || identifier.Name != "_" {
-			return false
-		}
-	}
-	return len(targets) > 0
-}
-
-// earliest is the first of a set of positions inside one file.
-func earliest(positions []token.Pos) token.Pos {
-	first := token.NoPos
-	for _, position := range positions {
-		if first == token.NoPos || position < first {
-			first = position
-		}
-	}
-	return first
-}
-
 // selectorName is the trailing name of a selector, or the name of an
 // identifier.
 func selectorName(expression ast.Expr) string {
@@ -283,60 +120,69 @@ func firstCallTo(body *ast.BlockStmt, name string) token.Pos {
 	return found
 }
 
-// TestEveryStatementTakesAGrantAndChecksItFirst holds the property the whole
-// package is shaped around, on every function that issues a statement rather
-// than on the five that exist today.
+// TestEveryServiceMethodAuthorizesBeforeTheModel holds the mandatory path on
+// every exported use case rather than on the three that exist today.
 //
-// The order is part of it. A Grant that arrives after the identifier is a
-// signature a caller can name a record in before holding any decision about it,
-// and the compiler is what refuses that -- but only while the parameter is
-// where it belongs.
-func TestEveryStatementTakesAGrantAndChecksItFirst(t *testing.T) {
+// A nil-database denial test proves the closed path. This syntax audit is its
+// twin for an allowed path: Model construction is visible in the method body,
+// and moving it above Authorize fails even when no terminal is executed.
+func TestEveryServiceMethodAuthorizesBeforeTheModel(t *testing.T) {
 	t.Parallel()
 
 	audited := 0
 	for _, source := range auditedFiles(t) {
 		for _, declaration := range source.file.Decls {
 			function, ok := declaration.(*ast.FuncDecl)
-			if !ok || function.Body == nil {
-				continue
-			}
-			reach, reaches := firstReach(function.Body)
-			if !reaches {
+			if !ok || function.Body == nil || receiverType(function) != "SkeletonService" ||
+				!function.Name.IsExported() {
 				continue
 			}
 			audited++
 
-			grant, position, takesGrant := grantParameter(function)
-			if !takesGrant {
-				t.Errorf("%s: %s issues a statement and takes no Grant, so nothing was decided before a row was read",
+			decided := firstCallTo(function.Body, "Authorize")
+			reach := firstModelReach(function.Body)
+			if decided == token.NoPos {
+				t.Errorf("%s: %s never calls security.Authorize, so no Policy decided whether the Model may run",
 					source.path, function.Name.Name)
-				continue
 			}
-			if position > 1 || (position == 1 && !contextFirst(function)) {
-				t.Errorf("%s: %s takes the Grant at position %d; it goes first, or straight after the context",
-					source.path, function.Name.Name, position)
+			if reach == token.NoPos {
+				t.Errorf("%s: %s never reaches the configured Model, so this audit found no data boundary to order",
+					source.path, function.Name.Name)
 			}
-
-			asked, discarded := checkCalls(function.Body, grant)
-			if len(discarded) > 0 {
-				t.Errorf("%s: %s throws away the answer of %s.Check, which is the same as never asking",
-					source.path, function.Name.Name, grant)
-			}
-			if len(asked) == 0 {
-				t.Errorf("%s: %s holds a Grant and never calls %s.Check, so a Grant issued for another action reaches this statement",
-					source.path, function.Name.Name, grant)
-				continue
-			}
-			if earliest(asked) > reach {
-				t.Errorf("%s: %s checks the Grant after it has already issued a statement",
+			if decided != token.NoPos && reach != token.NoPos && decided > reach {
+				t.Errorf("%s: %s reaches the Model before security.Authorize",
 					source.path, function.Name.Name)
 			}
 		}
 	}
 	if audited == 0 {
-		t.Fatal("no function in this package issues a statement, so this test proved nothing")
+		t.Fatal("no exported SkeletonService method was found, so this test proved nothing")
 	}
+}
+
+// firstModelReach is where a Service first constructs the configured Model or
+// calls a promoted write terminal. Skeletons itself counts: moving only its
+// construction before Authorize is the mutation this audit exists to reject.
+func firstModelReach(body *ast.BlockStmt) token.Pos {
+	terminals := map[string]bool{
+		"Save": true, "Delete": true, "Restore": true, "Touch": true,
+	}
+	found := token.NoPos
+	ast.Inspect(body, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		name := calledName(call)
+		if name != "Skeletons" && !terminals[name] {
+			return true
+		}
+		if found == token.NoPos || call.Pos() < found {
+			found = call.Pos()
+		}
+		return true
+	})
+	return found
 }
 
 // requestAccessors are the ways a value that arrived with the request is read.
@@ -383,181 +229,42 @@ func TestNoTenantIsReadOutOfTheRequest(t *testing.T) {
 	}
 }
 
-// TestEveryStatementTakesItsTenantFromTheGrant is the other half, and it is the
-// half that catches the omission rather than the mistake: a statement that
-// names no tenant at all reads every customer's rows and refuses nobody.
-func TestEveryStatementTakesItsTenantFromTheGrant(t *testing.T) {
+// TestTheServiceWritesTenantOnlyFromTheGrant holds the write half of tenant
+// isolation. The proposed value is policy input; the value persisted after
+// Authorize must take TenantID directly from data.Tenant(g).
+func TestTheServiceWritesTenantOnlyFromTheGrant(t *testing.T) {
 	t.Parallel()
 
 	audited := 0
 	for _, source := range auditedFiles(t) {
 		for _, declaration := range source.file.Decls {
 			function, ok := declaration.(*ast.FuncDecl)
-			if !ok || function.Body == nil {
+			if !ok || function.Body == nil || receiverType(function) != "SkeletonService" {
 				continue
 			}
-			if _, reaches := firstReach(function.Body); !reaches {
-				continue
-			}
-			audited++
-
-			if firstCallTo(function.Body, "Tenant") == token.NoPos {
-				t.Errorf("%s: %s issues a statement and never asks the Grant for the tenant, so the rows it names were not narrowed to one customer",
-					source.path, function.Name.Name)
-			}
-			for _, written := range tenantWrites(function.Body) {
-				t.Errorf("%s: %s writes a tenant field from %s; where a statement is issued, the only source is the Grant",
-					source.path, function.Name.Name, written)
-			}
-		}
-	}
-	if audited == 0 {
-		t.Fatal("no function in this package issues a statement, so this test proved nothing")
-	}
-}
-
-// tenantWrites returns every value written into a tenant field that did not
-// come from the Grant.
-//
-// It only looks inside a body that issues a statement. Elsewhere a tenant is
-// legitimately taken from the subject -- building the candidate a policy
-// decides about is exactly that -- and a rule that could not tell the two apart
-// would reject the code it exists to protect.
-func tenantWrites(body *ast.BlockStmt) []string {
-	fromGrant := func(value ast.Expr) bool {
-		call, ok := value.(*ast.CallExpr)
-		return ok && calledName(call) == "Tenant"
-	}
-
-	var out []string
-	ast.Inspect(body, func(node ast.Node) bool {
-		switch node := node.(type) {
-		case *ast.AssignStmt:
-			for i, target := range node.Lhs {
-				if i >= len(node.Rhs) || !strings.Contains(selectorName(target), "Tenant") {
-					continue
+			ast.Inspect(function.Body, func(node ast.Node) bool {
+				assignment, ok := node.(*ast.AssignStmt)
+				if !ok {
+					return true
 				}
-				if !fromGrant(node.Rhs[i]) {
-					out = append(out, types.ExprString(node.Rhs[i]))
-				}
-			}
-		case *ast.KeyValueExpr:
-			if strings.Contains(selectorName(node.Key), "Tenant") && !fromGrant(node.Value) {
-				out = append(out, types.ExprString(node.Value))
-			}
-		}
-		return true
-	})
-	return out
-}
-
-// TestNothingReachesARepositoryWithoutThePolicy closes the loop the other tests
-// leave open. The repository refuses a Grant issued for another action, and the
-// policy is what issues one at all -- so a caller that built a Grant some other
-// way, or reached the repository before deciding anything, satisfies every
-// check and skips the only authority there is.
-func TestNothingReachesARepositoryWithoutThePolicy(t *testing.T) {
-	t.Parallel()
-
-	files := auditedFiles(t)
-	held := repositoryFields(files)
-	if len(held) == 0 {
-		t.Fatal("no type in this package holds a repository, so this test proved nothing")
-	}
-
-	audited := 0
-	for _, source := range files {
-		for _, declaration := range source.file.Decls {
-			function, ok := declaration.(*ast.FuncDecl)
-			if !ok || function.Body == nil {
-				continue
-			}
-			fields := held[receiverType(function)]
-			if fields == nil {
-				continue
-			}
-			reach := firstRepositoryCall(function, fields)
-			if reach == token.NoPos {
-				continue
-			}
-			audited++
-
-			decided := firstCallTo(function.Body, "Authorize")
-			if decided == token.NoPos {
-				t.Errorf("%s: %s reaches the repository and never authorizes, so the Grant it passes was answered by nobody",
-					source.path, function.Name.Name)
-				continue
-			}
-			if decided > reach {
-				t.Errorf("%s: %s reaches the repository before it authorizes",
-					source.path, function.Name.Name)
-			}
-		}
-	}
-	if audited == 0 {
-		t.Fatal("no method in this package reaches a repository, so this test proved nothing")
-	}
-}
-
-// repositoryFields is, per type, the fields holding a repository.
-func repositoryFields(files []parsedGoFile) map[string]map[string]bool {
-	out := map[string]map[string]bool{}
-	for _, source := range files {
-		ast.Inspect(source.file, func(node ast.Node) bool {
-			specification, ok := node.(*ast.TypeSpec)
-			if !ok {
-				return true
-			}
-			structure, ok := specification.Type.(*ast.StructType)
-			if !ok {
-				return true
-			}
-			for _, field := range structure.Fields.List {
-				if !strings.HasSuffix(namedType(field.Type), "Repository") {
-					continue
-				}
-				for _, name := range field.Names {
-					if out[specification.Name.Name] == nil {
-						out[specification.Name.Name] = map[string]bool{}
+				for i, target := range assignment.Lhs {
+					if i >= len(assignment.Rhs) || selectorName(target) != "TenantID" {
+						continue
 					}
-					out[specification.Name.Name][name.Name] = true
+					audited++
+					call, ok := assignment.Rhs[i].(*ast.CallExpr)
+					if !ok || calledName(call) != "Tenant" {
+						t.Errorf("%s: %s writes TenantID from something other than data.Tenant(g)",
+							source.path, function.Name.Name)
+					}
 				}
-			}
-			return true
-		})
+				return true
+			})
+		}
 	}
-	return out
-}
-
-// firstRepositoryCall is where a method first calls through one of its own
-// repository fields.
-func firstRepositoryCall(function *ast.FuncDecl, fields map[string]bool) token.Pos {
-	receiver := receiverName(function)
-	found := token.NoPos
-
-	ast.Inspect(function.Body, func(node ast.Node) bool {
-		call, ok := node.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		method, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok {
-			return true
-		}
-		field, ok := method.X.(*ast.SelectorExpr)
-		if !ok || !fields[field.Sel.Name] {
-			return true
-		}
-		holder, ok := field.X.(*ast.Ident)
-		if !ok || holder.Name != receiver {
-			return true
-		}
-		if found == token.NoPos || call.Pos() < found {
-			found = call.Pos()
-		}
-		return true
-	})
-	return found
+	if audited == 0 {
+		t.Fatal("no Service tenant assignment was found, so this test proved nothing")
+	}
 }
 
 // capabilities is what arandu.mod.toml declares, and what the code does, under

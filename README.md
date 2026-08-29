@@ -45,7 +45,7 @@ happens to match.
 | `:package_name` | `Widget` | this file, `CHANGELOG.md`, `SECURITY.md` |
 | `:author_name` | `Acme` | `LICENSE.md`, this file |
 | `:author_username` | `acme` | `arandu.mod.toml`, `SECURITY.md`, this file |
-| `Skeleton` | `Widget` | the entity, the policy, the repository and the service |
+| `Skeleton` | `Widget` | the entity, the policy, the service and the configured Model entry point |
 
 The replacement runs over the contents of every file **and over the names of
 files and directories**. One name in this tree is read as data:
@@ -63,6 +63,7 @@ configured is a template whose breakage is discovered by its first user.
 ## The four gates
 
 ```bash
+export GOWORK=off
 gofmt -l $(find . -name '*.go' -not -path '*/testdata/*' -not -name '*.kyse.go')
 go build ./...
 go vet ./...
@@ -175,6 +176,26 @@ this package needs, one action at a time, inside the custom block:
 
 What is not written there stays closed, including every action added later.
 
+## Model-first data path
+
+`Skeleton` embeds `model.Model[Skeleton]`, and `Skeletons(db)` is the one
+configured entry point for its table. `SkeletonService` owns `*data.DB` and
+follows `validate -> security.Authorize -> Grant -> Model terminal`; handlers
+never hold the database or construct a Model.
+
+Create writes `TenantID` from `data.Tenant(g)`. Find authorizes before reading
+and again against the row it found. List authorizes before building its scoped,
+allowlisted query. The Model keeps its default `tenant_id` scope on every
+terminal.
+
+Terminals return `*Skeleton` and `[]*Skeleton`. Keep those pointers intact:
+copying an embedded Model leaves its `Entity` pointer aimed at the original
+allocation. `Resource` and `Collection` are explicit response snapshots and do
+not expose tenant or Model internals.
+
+There is no CRUD Repository. Add one only for a complex query, read model,
+report, export or raw SQL contract that the common Model path cannot express.
+
 ## Layout
 
 ```
@@ -182,21 +203,18 @@ module.go      registration, routes, handlers and migrations
 config.go      what the application passes in
 model.go       the entity, and what it may answer with
 policy.go      who may do what
-repository.go  data access, which requires a Grant
-service.go     the rules, and the only path a handler may take
+service.go     the rules and authorized Model access
 ```
 
 ## What is already correct, and has to stay that way
 
 **The policy denies everything.** There is no permit-all branch to delete
-later. A package that could reach the database without passing a policy would
-not be insecure; it would not compile, because the repository takes a `Grant`
-and a `Grant` is only produced by a policy that returned nil.
+later. The Service calls `security.Authorize` before its first `Skeletons(db)`
+reach, and every Model terminal requires the Grant that call produced.
 
-**The repository takes `(ctx, g, id)`, in that order.** The Grant comes before
-the identifier so that naming a record without a decision about it is not
-expressible. Every method opens with `g.Check`, which proves the Grant was
-issued for that exact action rather than for another one.
+**Authorization precedes the Model.** The package audit checks that order in
+every exported Service method. A Model terminal enforces tenant scope; the
+preceding Policy call decides whether the action itself is allowed.
 
 **The tenant comes from `data.Tenant(g)`.** Never from the path, the body, the
 query string or a header. The value on the Grant came from the session; a value
@@ -216,9 +234,9 @@ dependency, so nothing audits an installed package except the package itself.
 go test -race ./...
 ```
 
-The suite passes a database handle that wraps nothing, so any statement that
-ran would panic. Every refusal it asserts is therefore proof that the refusal
-happened before the query, and not after one.
+The denial suite constructs the Service with a nil database, so even building
+`Skeletons(nil)` would panic. The structural twin reads the allowed path and
+rejects any Service method that reaches the Model before `Authorize`.
 
 ## Licence
 
