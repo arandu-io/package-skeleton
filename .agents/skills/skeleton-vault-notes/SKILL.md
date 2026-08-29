@@ -12,11 +12,12 @@ This skill only applies when this checkout sits beside the Arandu vault. Three
 things are true at once when it does, and none of them alone is enough:
 
 ```sh
-ls ../MOC-arandu.md ../plans/audit-vault.py ../45-modules/ 2>/dev/null
+ls ../MOC-arandu.md ../plans/go.mod ../plans/cmd/audit-vault/ ../45-modules/ 2>/dev/null
 ```
 
-`MOC-arandu.md` at the vault root is the single canonical index. `plans/audit-vault.py`
-is the instrument that decides whether a note is well formed. `45-modules/` is
+`MOC-arandu.md` at the vault root is the single canonical index.
+`plans/cmd/audit-vault` is the Go instrument that decides whether a note is
+well formed. `45-modules/` is
 where a note about *this* package goes.
 
 If those are absent, stop here. Do not create a vault, do not create the folders,
@@ -90,13 +91,14 @@ whatsapp`, because none of the seven is fixed in that repository.
 
 ## Registering a new module slug
 
-The layer vocabulary is a closed set in `plans/audit-vault.py`. A module the vault
-has never seen fails check 4 with `layer='<slug>'` until its slug is added:
+The layer vocabulary is a closed set in `plans/cmd/audit-vault/main.go`. A module
+the vault has never seen fails check 4 with `layer='<slug>'` until its slug is
+added:
 
-```python
-LAYERS = {"hesape", "framework", "aru", "kyse", "joaju", "ui", "kv", "queue",
-          "storage", "database", "mcp", "arandu", "examples",
-          "swagger", "whatsapp", ""}
+```go
+layers = stringSet("hesape", "framework", "aru", "kyse", "joaju", "ui",
+	"kv", "queue", "storage", "database", "mcp", "arandu", "examples",
+	"swagger", "whatsapp", "")
 ```
 
 **That is the only list.** Adding a module is one entry there plus the `MOD-`
@@ -169,10 +171,10 @@ are English; what is written under them is Portuguese.
 One command decides whether any of this was done right:
 
 ```sh
-python3 plans/audit-vault.py
+GOWORK=off go -C plans run ./cmd/audit-vault
 ```
 
-Ten checks: file names, duplicate names, missing frontmatter, frontmatter outside
+Thirteen checks: file names, duplicate names, missing frontmatter, frontmatter outside
 the schema, ADRs without aliases, supersession symmetry, unresolved `[[links]]`,
 orphan notes, the front dependency graph, and the queue. It exits non-zero if any
 of them finds something, and green output names the note count.

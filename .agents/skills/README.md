@@ -27,7 +27,7 @@ else's project — the one running `go get` — has the wiring, the migration st
 and the closed policy in front of it instead of guessing.
 
 `skeleton-vault-notes` fires on a condition rather than on a task: it applies
-only when `MOC-arandu.md`, `plans/audit-vault.py` and `45-modules/` are actually
+only when `MOC-arandu.md`, `plans/cmd/audit-vault/` and `45-modules/` are actually
 beside this checkout. Outside the vault it is inert, and it says so first, so a
 package cloned somewhere else never grows a folder tree imitating one.
 
