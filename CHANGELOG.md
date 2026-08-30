@@ -10,16 +10,28 @@ a release is corrected by another release and never by moving a tag.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-29
+
+### Added
+
+- `Skeletons(db)` exposes the configured, tenant-scoped Model used by the
+  Service after authorization.
+
 ### Changed
 
-- Generic CRUD now uses the configured `Skeletons(db)` Model and its Builder.
-- `NewSkeletonService` now accepts `*data.DB` directly.
-- `SkeletonService.Create`, `Find`, and `List` now return Model-backed pointers;
-  keep those pointers intact until taking a response snapshot.
-- `Skeleton` now embeds `model.Model[Skeleton]` and is no longer comparable.
+- The minimum Framework version is now `v0.41.0`, with Hesape `v0.19.1`.
+- `NewSkeletonService` now accepts `*data.DB` instead of
+  `*SkeletonRepository`.
+- `(*SkeletonService).Create` now returns `(*Skeleton, error)`.
+- `(*SkeletonService).Find` now returns `(*Skeleton, error)`.
+- `(*SkeletonService).List` now returns `([]*Skeleton, error)`.
+- `Skeleton`: old is comparable; new is not because it embeds
+  `model.Model[Skeleton]`. Compare stable fields such as `ID` instead.
 
 ### Removed
 
-- `SkeletonRepository`, `NewSkeletonRepository`, and the five generic CRUD
-  methods. Add a Repository only for specialized queries, reports, projections,
-  read models, exports, or external storage.
+- `SkeletonRepository` and `NewSkeletonRepository`.
+- `(*SkeletonRepository).Create`, `(*SkeletonRepository).Delete`,
+  `(*SkeletonRepository).Find`, `(*SkeletonRepository).List`, and
+  `(*SkeletonRepository).Update`. Add a Repository only for specialized
+  queries, reports, projections, read models, exports, or external storage.
