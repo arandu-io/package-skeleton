@@ -6,7 +6,7 @@
 # four lines below worth reading before installing anything.
 
 name = ":author_username/:module_slug"
-framework = ">= 0.41"
+framework = ">= 0.42"
 profiles = ["conventional", "performance"]
 
 [permissions]
