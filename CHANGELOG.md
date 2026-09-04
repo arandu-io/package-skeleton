@@ -10,6 +10,8 @@ a release is corrected by another release and never by moving a tag.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-03
+
 ### Added
 
 - `Publishable`, the optional contract a module answers to hand files to the
