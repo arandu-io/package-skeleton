@@ -10,6 +10,21 @@ a release is corrected by another release and never by moving a tag.
 
 ## [Unreleased]
 
+### Added
+
+- `Publishable`, the optional contract a module answers to hand files to the
+  application, and `Publishes()` on `Module`.
+- `PublishedPaths`, `ViewNames` and `ViewPackages`, the three spellings of one
+  view derived from the archive rather than written down separately.
+- `PublishCommand`, the one spelling of the command that copies the views.
+- `publish`, a command of this module: `go run <module>/publish@latest` writes
+  the views under `resources/views/vendor/<module>/`, refuses to replace a file
+  the project already has without `--force`, and prints the imports that link
+  them.
+- `(*Module).Boot` refuses to serve when a view this package renders was never
+  published, naming the view and the command instead of answering the first
+  request that reaches it with a 500.
+
 ## [0.2.0] - 2026-08-29
 
 ### Added

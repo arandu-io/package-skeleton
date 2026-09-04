@@ -10,6 +10,7 @@
 //	model.go       -> the entity, and what it may answer with
 //	policy.go      -> who may do what
 //	service.go     -> the rules and Model access, after authorization
+//	views.go       -> the files the application takes ownership of
 //
 // An application registers it explicitly. There is no service provider, no
 // container and no discovery: the wiring is three lines somebody wrote, and
@@ -19,7 +20,9 @@ package skeleton
 import (
 	"context"
 	"errors"
+	"fmt"
 	stdhttp "net/http"
+	"strings"
 
 	"github.com/arandu-io/framework/data"
 	"github.com/arandu-io/framework/foundation"
@@ -28,6 +31,7 @@ import (
 	"github.com/arandu-io/framework/validation"
 	"github.com/arandu-io/hesape/database/migrations"
 	"github.com/arandu-io/hesape/database/schema"
+	"github.com/arandu-io/hesape/view"
 )
 
 // Module is what the application registers.
@@ -51,6 +55,7 @@ type Module struct {
 var (
 	_ foundation.Module     = (*Module)(nil)
 	_ foundation.Migratable = (*Module)(nil)
+	_ foundation.Bootable   = (*Module)(nil)
 )
 
 // New returns the module, or the reason it cannot be built.
@@ -95,6 +100,58 @@ func (m *Module) Routes(r *fhttp.Router) {
 	r.Action(stdhttp.MethodGet, m.cfg.Prefix, m.index).Name("skeleton.index")
 	r.Action(stdhttp.MethodGet, m.cfg.Prefix+"/{id}", m.show).Name("skeleton.show")
 	r.Action(stdhttp.MethodPost, m.cfg.Prefix, m.store).Name("skeleton.store")
+}
+
+// PublishCommand is what an application runs to take ownership of the views
+// this package offers.
+//
+// It is spelled out as a constant because two places print it -- the refusal
+// below and the command's own usage -- and a person who is told two different
+// commands for one job tries both.
+const PublishCommand = "go run github.com/arandu-io/package-skeleton/publish@latest"
+
+// Boot refuses to serve when a view this package renders is not in the binary.
+//
+// A compiled view registers itself from init(), so by the time anything boots
+// the question has one answer already: either the application published the
+// files, compiled them and imported the package they became, or it did not.
+// Asking here turns "did anybody run the install command" into one refusal at
+// start-up that names the views and the command, instead of a 500 on the first
+// request that reached one of them -- which is where it used to be answered,
+// once per page, to whoever happened to open it.
+//
+// It also holds the destination. Every file the archive offers has to land
+// under the vendor directory named after this module: an archive that reached
+// resources/views/home.kyse.go would land on a page the application wrote, and
+// the publisher copies what the archive says.
+func (m *Module) Boot(context.Context) error {
+	prefix := viewRoot + "/" + vendorDir + "/" + m.Name() + "/"
+	var stray []string
+	for _, path := range PublishedPaths() {
+		if !strings.HasPrefix(path, prefix) {
+			stray = append(stray, path)
+		}
+	}
+	if len(stray) > 0 {
+		return fmt.Errorf("skeleton: %s would be published outside %s, where it lands on a file the application wrote",
+			strings.Join(stray, ", "), prefix)
+	}
+
+	registered := make(map[string]bool)
+	for _, name := range view.Registered() {
+		registered[name] = true
+	}
+	var missing []string
+	for _, name := range ViewNames() {
+		if !registered[name] {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("skeleton: no view is registered as %s. Run `%s`, then `aru view:build`, then import the generated package in bootstrap/app.go",
+			strings.Join(missing, ", "), PublishCommand)
+	}
+	return nil
 }
 
 // Handlers are thin on purpose: read the input, ask the service, answer. No

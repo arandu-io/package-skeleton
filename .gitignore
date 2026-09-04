@@ -9,6 +9,11 @@
 *.out
 coverage.*
 
+# What `aru view:build` writes when it compiles the views in this repository as
+# a check. The application compiles its own copy of them after publishing, so
+# nothing here is ever shipped or imported.
+storage/
+
 # Local module resolution while something in the graph is not published.
 go.work
 go.work.sum
