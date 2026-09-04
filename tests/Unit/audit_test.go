@@ -68,13 +68,30 @@ func buildable(file *ast.File) bool {
 	return true
 }
 
-// auditedFiles is every Go file the compiler builds into this package.
+// linked reports whether an application that installs this package compiles
+// this file into its binary.
+//
+// A command is not linked. `go get` of a library never pulls in the main
+// package beside it, and `go build` of the application never reaches it, so
+// what a command does is not a capability anybody who installs this agreed to:
+// the publisher writes view files into the project, before the project has
+// installed anything, in the working copy of the person who typed the command.
+// Auditing it would make the manifest declare a capability that no running
+// application has -- which is the same defect as declaring one nothing uses,
+// pointed the other way.
+//
+// Every rule in this file reads what the installer links, and this is where
+// that is decided once.
+func linked(file *ast.File) bool { return file.Name.Name != "main" }
+
+// auditedFiles is every Go file an application that installs this package
+// compiles into its binary.
 func auditedFiles(t *testing.T) []parsedGoFile {
 	t.Helper()
 
 	out := []parsedGoFile{}
 	for _, source := range productionGoFiles(t, packageRoot(t)) {
-		if buildable(source.file) {
+		if buildable(source.file) && linked(source.file) {
 			out = append(out, source)
 		}
 	}
