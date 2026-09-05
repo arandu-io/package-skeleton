@@ -73,12 +73,14 @@ func buildable(file *ast.File) bool {
 //
 // A command is not linked. `go get` of a library never pulls in the main
 // package beside it, and `go build` of the application never reaches it, so
-// what a command does is not a capability anybody who installs this agreed to:
-// the publisher writes view files into the project, before the project has
-// installed anything, in the working copy of the person who typed the command.
-// Auditing it would make the manifest declare a capability that no running
+// what a command does is not a capability anybody who installs this agreed to.
+// Auditing one would make the manifest declare a capability that no running
 // application has -- which is the same defect as declaring one nothing uses,
 // pointed the other way.
+//
+// The package carries no command today, and the rule is here rather than in the
+// commit that adds one: a capability audit that grows a hole the first time
+// somebody needs it is an audit whose answer depends on who ran it.
 //
 // Every rule in this file reads what the installer links, and this is where
 // that is decided once.

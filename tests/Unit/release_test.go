@@ -75,6 +75,42 @@ func TestVersion020NamesEveryModelFirstIncompatibility(t *testing.T) {
 	}
 }
 
+// TestVersion040NamesEveryPublishingIncompatibility holds the same promise for
+// the release that moved publishing to the framework contract.
+//
+// The CI job that runs apidiff makes it as well, and only there: it needs the
+// release tag and the git history, so a working tree that dropped a symbol
+// without saying so is green locally until a pull request opens. This is the
+// half that fails where the change is written.
+func TestVersion040NamesEveryPublishingIncompatibility(t *testing.T) {
+	root := packageRoot(t)
+	upgrade := readReleaseFile(t, root, "UPGRADE.md")
+	changelog := readReleaseFile(t, root, "CHANGELOG.md")
+
+	if got := strings.Count(changelog, "## [0.4.0] - "); got != 1 {
+		t.Fatalf("v0.4.0 changelog headings = %d, want exactly one pre-versioned entry", got)
+	}
+	if !strings.Contains(upgrade, "## v0.4.0") {
+		t.Fatal("UPGRADE.md has no v0.4.0 entry")
+	}
+
+	incompatibilities := []string{
+		"`Publishable`",
+		"`Publishes`",
+		"`PublishCommand`",
+		"`foundation.Publishable`",
+		"aru vendor:publish",
+	}
+	for _, incompatibility := range incompatibilities {
+		if !strings.Contains(upgrade, incompatibility) {
+			t.Errorf("UPGRADE.md does not name %s", incompatibility)
+		}
+		if !strings.Contains(changelog, incompatibility) {
+			t.Errorf("v0.4.0 notes do not name %s", incompatibility)
+		}
+	}
+}
+
 func TestCIGuardsIncompatibleAPIChanges(t *testing.T) {
 	ci := readReleaseFile(t, packageRoot(t), ".github/workflows/ci.yml")
 	required := []string{

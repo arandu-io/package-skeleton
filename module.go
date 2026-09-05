@@ -39,12 +39,13 @@ import (
 // It implements foundation.Module, which is Name and Routes and nothing else --
 // that pair is the whole public contract between a package and the framework.
 //
-// It also implements foundation.Migratable, because it owns a table. The other
-// optional interfaces are declared beside Module in the framework and are opted
-// into the same way, by implementing them: Bootable to prepare state at boot,
-// Background to run a loop of its own, Schedulable to declare work for the
-// scheduler, Health to report on the storage it depends on, Closable to give
-// resources back at shutdown.
+// It also implements foundation.Migratable, because it owns a table, and
+// foundation.Publishable, because it hands view sources to the project. The
+// other optional interfaces are declared beside Module in the framework and are
+// opted into the same way, by implementing them: Bootable to prepare state at
+// boot, Background to run a loop of its own, Schedulable to declare work for
+// the scheduler, Health to report on the storage it depends on, Closable to
+// give resources back at shutdown.
 type Module struct {
 	cfg      Config
 	svc      *SkeletonService
@@ -53,9 +54,10 @@ type Module struct {
 
 // Compile-time proof that the module honors the contracts it claims.
 var (
-	_ foundation.Module     = (*Module)(nil)
-	_ foundation.Migratable = (*Module)(nil)
-	_ foundation.Bootable   = (*Module)(nil)
+	_ foundation.Module      = (*Module)(nil)
+	_ foundation.Migratable  = (*Module)(nil)
+	_ foundation.Bootable    = (*Module)(nil)
+	_ foundation.Publishable = (*Module)(nil)
 )
 
 // New returns the module, or the reason it cannot be built.
@@ -105,10 +107,14 @@ func (m *Module) Routes(r *fhttp.Router) {
 // PublishCommand is what an application runs to take ownership of the views
 // this package offers.
 //
-// It is spelled out as a constant because two places print it -- the refusal
-// below and the command's own usage -- and a person who is told two different
-// commands for one job tries both.
-const PublishCommand = "go run github.com/arandu-io/package-skeleton/publish@latest"
+// It is spelled out as a constant so that whatever says it -- the refusal
+// below, or a message an application writes for its own operators -- says one
+// thing. A person who is told two different commands for one job tries both.
+//
+// The command reads the modules the application registered and writes what each
+// one declares, which is why it is the application's command and not this
+// package's: nothing outside the application knows which modules it holds.
+const PublishCommand = "aru vendor:publish --apply"
 
 // Boot refuses to serve when a view this package renders is not in the binary.
 //
@@ -123,7 +129,7 @@ const PublishCommand = "go run github.com/arandu-io/package-skeleton/publish@lat
 // It also holds the destination. Every file the archive offers has to land
 // under the vendor directory named after this module: an archive that reached
 // resources/views/home.kyse.go would land on a page the application wrote, and
-// the publisher copies what the archive says.
+// what publishes the files writes what the archive says.
 func (m *Module) Boot(context.Context) error {
 	prefix := viewRoot + "/" + vendorDir + "/" + m.Name() + "/"
 	var stray []string
@@ -148,8 +154,16 @@ func (m *Module) Boot(context.Context) error {
 		}
 	}
 	if len(missing) > 0 {
-		return fmt.Errorf("skeleton: no view is registered as %s. Run `%s`, then `aru view:build`, then import the generated package in bootstrap/app.go",
-			strings.Join(missing, ", "), PublishCommand)
+		// The compiled packages are named because the import is the half of the
+		// install nothing else can do: the command writes the sources, the view
+		// compiler turns them into Go, and a package the application does not
+		// import is not linked at all.
+		imports := make([]string, 0, len(ViewPackages()))
+		for _, pkg := range ViewPackages() {
+			imports = append(imports, "<module path>/"+pkg)
+		}
+		return fmt.Errorf("skeleton: no view is registered as %s. Run `%s`, then `aru view:build`, then import %s in bootstrap/app.go",
+			strings.Join(missing, ", "), PublishCommand, strings.Join(imports, ", "))
 	}
 	return nil
 }

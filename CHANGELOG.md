@@ -10,6 +10,34 @@ a release is corrected by another release and never by moving a tag.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-05
+
+### Added
+
+- `(*Module).Publishes` declares one `foundation.Publication`, tagged as a view.
+  The contract belongs to the framework, so whatever writes the files reads
+  every module through one interface instead of one this package defined for
+  itself.
+
+### Changed
+
+- The minimum Framework version is now `v0.46.0`, with Hesape `v0.25.0`.
+- `(*Module).Publishes` returns `[]foundation.Publication` instead of `io/fs.FS`.
+- `PublishCommand` is now `aru vendor:publish --apply`.
+- `(*Module).Boot` names the package whose import links the views, alongside the
+  view and the command.
+
+### Removed
+
+- `Publishable`, the contract this package declared for itself.
+  `foundation.Publishable` is the one it answers now.
+- `Publishes`, the package-level function. There was a second form because a
+  command with no database handle could not hold a `Module`; there is no such
+  command any more.
+- `publish`, the command of this module. `aru vendor:publish` reads the modules
+  an application registered and writes what each one declares, which is a
+  question only the application can answer.
+
 ## [0.3.1] - 2026-09-03
 
 ### Added

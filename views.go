@@ -4,21 +4,23 @@ import (
 	"embed"
 	"io/fs"
 	"strings"
+
+	"github.com/arandu-io/framework/foundation"
 )
 
-// The view sources this package hands to the application that installs it.
+// The view sources this package hands to the project that installs it.
 //
-// They are embedded rather than read off disk because the command that copies
-// them runs straight from the module proxy: `go run <module>/publish@latest`
-// downloads the module, builds it and executes it, and at that point nothing of
-// this repository exists as files. Whatever the command writes has to already
-// be inside the binary it just built.
+// They are embedded rather than read off disk because what a module publishes
+// is a tree it carries, not a directory it points at: the program that writes
+// the files is the application's own binary, running somewhere this repository
+// does not exist as files. Whatever is handed over has to already be inside the
+// program doing the handing.
 //
-// The paths inside the archive are the paths the files take in the application,
-// not paths of this repository that something has to translate on the way. A
-// view sits here at the address it will sit at there, so publishing is a copy
-// and there is no second spelling of a destination for the first one to
-// disagree with.
+// The paths inside the archive are the paths the files take in the project, not
+// paths of this repository that something has to translate on the way. A view
+// sits here at the address it will sit at there, so the publication names
+// neither a source directory nor a destination one, and there is no second
+// spelling of a destination for the first one to disagree with.
 //
 //go:embed resources/views
 var viewSources embed.FS
@@ -41,39 +43,19 @@ const compiledRoot = "storage/framework/views"
 
 // vendorDir is the directory an application keeps other people's views in.
 //
-// It is part of the path in the archive and not something the publisher adds,
+// It is part of the path in the archive and not something the publication adds,
 // which is what makes the archive a literal picture of what lands in the
 // project. Two packages with a view called index are two files under two names
 // below it, and neither shadows the other or the application's own.
 const vendorDir = "vendor"
 
-// Publishable is what a module implements to hand files to the application.
+// Publishes declares the files this package offers, each at the path it takes
+// relative to the root of the project.
 //
-// It is an optional capability, discovered the way every other one is: the
-// value is already held as a module, and whoever wants the files asks whether
-// it also answers this. A module that publishes nothing does not implement it,
-// and nothing changes for it.
-//
-// The signature names only io/fs, so the interface can be declared in more than
-// one place and still be one interface to the compiler. Nothing here has to
-// import the declaration it is measured against.
-//
-// Name is in the contract because the destination is derived from it: what the
-// module calls itself is the directory its files land in, and a second name
-// kept elsewhere for the same purpose is the pair that drifts.
-type Publishable interface {
-	Name() string
-	Publishes() fs.FS
-}
-
-// Compile-time proof that the module honors the contract it claims.
-var _ Publishable = (*Module)(nil)
-
-// Publishes returns the files this package offers, each at the path it takes
-// relative to the root of the application.
-//
-// Views and nothing else, and each absence is a decision rather than an
-// omission:
+// One tree, under one tag. A publication may carry a page, a component, a
+// configuration file, a migration, a catalogue of sentences or an asset, and
+// this package offers the first of those and nothing else. Each absence is a
+// decision rather than an omission:
 //
 //   - configuration is the Config struct New is handed, checked by the compiler
 //     and validated before the module exists. A file copied into the project
@@ -92,17 +74,11 @@ var _ Publishable = (*Module)(nil)
 //     schema change applies twice under two names.
 //
 // What is left is the markup, and it is here for the reason the others are not:
-// it is the one thing the application is expected to edit. A package cannot
-// know what a screen should say in a product it has never seen.
-func Publishes() fs.FS { return viewSources }
-
-// Publishes is the same set, reached through the module.
-//
-// Both forms exist because neither caller can reach the other's: the publishing
-// command has no database handle and no session store, so it can never hold a
-// Module, and the application holds nothing else. One implementation answers
-// both, so there is no second archive to fall behind.
-func (m *Module) Publishes() fs.FS { return Publishes() }
+// it is the one thing the project is expected to edit. A package cannot know
+// what a screen should say in a product it has never seen.
+func (m *Module) Publishes() []foundation.Publication {
+	return []foundation.Publication{{Tag: foundation.PublishView, Files: viewSources}}
+}
 
 // PublishedPaths are the files in the archive, each relative to the root of the
 // application, sorted.
@@ -112,7 +88,7 @@ func PublishedPaths() []string { return append([]string(nil), publishedPaths...)
 //
 // The name is the path under the view root with its separators turned into
 // dots, which is what the view compiler writes into the registration call. It
-// is derived from the same archive the publisher copies, so a view that was
+// is derived from the same archive the publication carries, so a view that was
 // renamed cannot keep an old name here.
 func ViewNames() []string { return append([]string(nil), viewNames...) }
 
@@ -121,8 +97,8 @@ func ViewNames() []string { return append([]string(nil), viewNames...) }
 //
 // Importing one is what puts its views in the binary: a compiled view calls the
 // registry from init(), and a package nothing imports is not linked at all. The
-// publisher prints these instead of writing them into bootstrap/app.go, because
-// one line somebody reads beats a file that changed while they were not looking.
+// import is named rather than written into bootstrap/app.go, because one line
+// somebody reads beats a file that changed while they were not looking.
 func ViewPackages() []string {
 	var out []string
 	seen := make(map[string]bool)
