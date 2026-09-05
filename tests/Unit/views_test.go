@@ -3,6 +3,9 @@ package unit_test
 import (
 	"context"
 	"io"
+	"io/fs"
+	"path"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -51,26 +54,85 @@ func module(t *testing.T) *skeleton.Module {
 // TestTheModuleDeclaresWhatItPublishes holds the contract itself: the module is
 // asked for its files the way it is asked for its migrations, through an
 // optional interface it either answers or does not.
+//
+// The declaration is read the way whatever publishes reads it -- through
+// foundation.Publications, which is where a tag outside the closed set is
+// refused -- rather than by calling the method and trusting what comes back.
 func TestTheModuleDeclaresWhatItPublishes(t *testing.T) {
 	t.Parallel()
 
-	m := module(t)
-
-	var mod foundation.Module = m
-	publishable, ok := mod.(skeleton.Publishable)
-	if !ok {
+	var mod foundation.Module = module(t)
+	if _, ok := mod.(foundation.Publishable); !ok {
 		t.Fatal("the module does not answer the publishing contract, so nothing can find its files")
 	}
-	if publishable.Publishes() == nil {
-		t.Fatal("the module answers the contract with nothing")
+
+	publications, err := foundation.Publications(mod)
+	if err != nil {
+		t.Fatalf("reading what the module publishes: %v", err)
 	}
+	if len(publications) != 1 {
+		t.Fatalf("the module declares %d publication(s), want one: this package hands over markup and nothing else", len(publications))
+	}
+	if tag := publications[0].Tag; tag != foundation.PublishView {
+		t.Errorf("the files are published as %q, want %q", tag, foundation.PublishView)
+	}
+	if publications[0].Files == nil {
+		t.Error("the publication carries no files, so the declaration promises what nothing can write")
+	}
+
 	if _, ok := mod.(foundation.Bootable); !ok {
 		t.Fatal("the module does not boot, so a view that was never published would be answered as a 500 per request")
 	}
 }
 
+// TestThePublicationLandsWhereTheModuleSaysItDoes keeps the declaration and the
+// refusal reading one set of paths.
+//
+// Boot checks PublishedPaths, and what publishes writes wherever the
+// publication resolves to: a source or destination directory on the publication
+// would move the files without moving the check, and the fail-closed
+// destination below would be guarding paths nothing writes.
+func TestThePublicationLandsWhereTheModuleSaysItDoes(t *testing.T) {
+	t.Parallel()
+
+	publications, err := foundation.Publications(module(t))
+	if err != nil {
+		t.Fatalf("reading what the module publishes: %v", err)
+	}
+
+	var targets []string
+	for _, publication := range publications {
+		from := publication.From
+		if from == "" {
+			from = "."
+		}
+		err := fs.WalkDir(publication.Files, from, func(name string, entry fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if entry.IsDir() {
+				return nil
+			}
+			relative := name
+			if from != "." {
+				relative = strings.TrimPrefix(strings.TrimPrefix(name, from), "/")
+			}
+			targets = append(targets, path.Join(publication.To, relative))
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walking the %s publication: %v", publication.Tag, err)
+		}
+	}
+
+	slices.Sort(targets)
+	if want := skeleton.PublishedPaths(); !slices.Equal(targets, want) {
+		t.Errorf("the publication writes %v, and the module checks %v", targets, want)
+	}
+}
+
 // TestEveryPublishedFileLandsUnderTheModuleNamespace is the fail-closed half of
-// the destination. The publisher copies what the archive says, so an archive
+// the destination. What publishes writes what the archive says, so an archive
 // naming resources/views/home.kyse.go would land on a page the application
 // wrote -- and the person running the install command would find out from the
 // page.
@@ -129,9 +191,9 @@ func TestTheNameAViewIsRenderedByComesFromItsPath(t *testing.T) {
 // order it happens.
 //
 // Before: nothing published, nothing compiled, nothing imported, so the registry
-// holds none of these names and the module refuses -- naming the view and the
-// command that fixes it, because a refusal that does not say what to do next is
-// a refusal somebody works around.
+// holds none of these names and the module refuses -- naming the view, the
+// command and the package to import, because a refusal that does not say what
+// to do next is a refusal somebody works around.
 //
 // After: the names are in the registry, which is the state publishing produces
 // once the views are compiled and the generated package is imported. The module
@@ -162,6 +224,11 @@ func TestTheModuleRefusesToBootUntilItsViewsAreLinked(t *testing.T) {
 	if !strings.Contains(err.Error(), skeleton.PublishCommand) {
 		t.Errorf("the refusal does not say how to publish the views: %v", err)
 	}
+	for _, pkg := range skeleton.ViewPackages() {
+		if !strings.Contains(err.Error(), pkg) {
+			t.Errorf("the refusal does not name %s, the package whose import links the views: %v", pkg, err)
+		}
+	}
 
 	// What the compiled view does from init(), done here because there is no
 	// compiled view in a package that is not an application.
@@ -171,5 +238,25 @@ func TestTheModuleRefusesToBootUntilItsViewsAreLinked(t *testing.T) {
 
 	if err := m.Boot(ctx); err != nil {
 		t.Fatalf("the module refused to boot with every view linked: %v", err)
+	}
+}
+
+// TestThePackageShipsNoCommandOfItsOwn holds the mechanism rather than the
+// declaration: publishing is declared here and performed by the CLI, which
+// reads the modules an application registered and writes what each of them
+// offers.
+//
+// A program in this module that copied files into a project would be a second
+// answer to "how do I get these views", and two answers disagree the first time
+// one of them learns something the other does not. The file behind a build tag
+// is not one, because the compiler never reads it.
+func TestThePackageShipsNoCommandOfItsOwn(t *testing.T) {
+	t.Parallel()
+
+	for _, source := range productionGoFiles(t, packageRoot(t)) {
+		if source.file.Name.Name == "main" && buildable(source.file) {
+			t.Errorf("%s is a command this module carries; what a package publishes is declared, and %s writes it",
+				source.path, skeleton.PublishCommand)
+		}
 	}
 }
