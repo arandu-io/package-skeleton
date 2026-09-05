@@ -138,6 +138,49 @@ aru migrate
 This package owns a table, which is why the migration step is not optional and
 why `arandu.mod.toml` says `migrations = true`.
 
+## Publish the views
+
+This package carries the markup of its own pages and hands it over instead of
+rendering it from the inside, because a page you cannot edit is a page that says
+the wrong thing in your product.
+
+Look at what would be written, then write it:
+
+```bash
+aru vendor:publish --tag=view
+aru vendor:publish --tag=view --apply
+```
+
+Nothing is written without `--apply`. The preview lists every file as `create`,
+`update`, `unchanged` or `conflict`, and running the command a second time
+writes nothing. A file changed outside its `arandu:begin custom` markers is
+reported as a conflict and left alone; `--force` publishes over one, and even
+then what is inside the markers is carried forward.
+
+The files land under `resources/views/vendor/:module_slug/`, and from that point
+they are yours. Nothing of this package is compiled beside them, so no view name
+is registered twice and no rule has to decide which of two files won — the
+consequence being that a view of this package that changes later does not reach
+a project that already published it.
+
+Two steps are left to you, and they are left to you because a command that
+edited `bootstrap/app.go` behind your back is a command whose output nobody can
+explain. Compile what was written:
+
+```bash
+aru view:build
+```
+
+and import the directory it wrote into, with the other imports:
+
+```go
+	_ "your/module/path/storage/framework/views/vendor/:module_slug"
+```
+
+Without that import the views are not in the binary, and the module refuses to
+boot rather than answering the first request that reaches one of them with a
+500. The refusal names the view, the command and the import.
+
 ## Configuration
 
 | field | required | meaning |
@@ -204,6 +247,7 @@ config.go      what the application passes in
 model.go       the entity, and what it may answer with
 policy.go      who may do what
 service.go     the rules and authorized Model access
+views.go       the files the application takes ownership of
 ```
 
 ## What is already correct, and has to stay that way

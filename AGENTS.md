@@ -115,8 +115,8 @@ this one must prove about itself it proves in its own suite or nowhere.
 
 | | measured with |
 | --- | --- |
-| 5 Go files, one per role, all in one package at the root | `grep -l '^package skeleton' *.go` |
-| 4 test files, 25 tests | `find tests -name '*_test.go'` · `go test -count=1 ./... -v \| grep -c '^--- PASS'` |
+| 6 Go files, one per role, all in one package at the root | `grep -l '^package skeleton' *.go` |
+| 6 test files, 37 tests | `find tests -name '*_test.go'` · `go test -count=1 ./... -v \| grep -c '^--- PASS'` |
 | 3 routes | `grep -c 'r.Action' module.go` |
 | 5 actions the policy answers about | `grep -cE '^\t[A-Za-z]+ security.Action = ' policy.go` |
 | 2 direct dependencies, both under `arandu-io` | `go list -m -f '{{if and (not .Indirect) (not .Main)}}{{.Path}} {{.Version}}{{end}}' all` |
@@ -129,6 +129,7 @@ config.go      what the application passes in
 model.go       the entity, and what it may answer with
 policy.go      who may do what
 service.go     the rules and authorized Model access
+views.go       the files the application takes ownership of
 ```
 
 `Skeletons(db)` configures the table, string primary key and default
@@ -152,6 +153,7 @@ rejected in review. None of them is missing by accident.
 | an `interface{}` config, a map of options, an env var read at call time | the typed `Config` struct, validated by `New` |
 | a `panic` on bad wiring | an `error` from `New`. A wiring mistake found at boot costs one restart |
 | a third dependency | an argument, first. This module is imported into other people's builds |
+| a command of its own that copies files into a project | `Publishes()`, which declares a tagged tree and nothing more. `aru vendor:publish` asks the application which modules it registered and writes what each one declares, so one command serves every installed package instead of one command per package |
 
 ## The four properties
 
