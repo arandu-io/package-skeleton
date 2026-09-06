@@ -143,6 +143,21 @@ func TestEveryChangelogVersionHasUpgradeNotes(t *testing.T) {
 	}
 }
 
+// The section markers, spelled in halves.
+//
+// configure removes whole lines from the first marker to the second in every
+// file it reads, this one included. A test naming them in full would be a test
+// configure deleted the middle of, and that is not a thought experiment: it
+// happened on the first run, and the clone failed to build with
+// "undefined: start".
+const (
+	markerHalf = "configure:template"
+	openMarker = markerHalf + "-start"
+	shutMarker = markerHalf + "-end"
+)
+
+// configure:template-start
+
 // TestTheReleaseHistoryBelongsToTheTemplateSection keeps this repository's own
 // releases out of every package cloned from it.
 //
@@ -152,6 +167,9 @@ func TestEveryChangelogVersionHasUpgradeNotes(t *testing.T) {
 // published packages carried this repository's history that way, each shipping
 // a changelog whose highest heading described a release of the skeleton and
 // filing everything they had actually added as unreleased.
+//
+// The test is itself inside the section, because a configured package has no
+// template history to keep anywhere.
 func TestTheReleaseHistoryBelongsToTheTemplateSection(t *testing.T) {
 	root := packageRoot(t)
 	for _, file := range []struct {
@@ -162,10 +180,10 @@ func TestTheReleaseHistoryBelongsToTheTemplateSection(t *testing.T) {
 		{"UPGRADE.md", regexp.MustCompile(`(?m)^## v[0-9]+\.[0-9]+\.[0-9]+$`)},
 	} {
 		body := readReleaseFile(t, root, file.name)
-		start := strings.Index(body, "configure:template-start")
-		end := strings.Index(body, "configure:template-end")
+		start := strings.Index(body, openMarker)
+		end := strings.Index(body, shutMarker)
 		if start < 0 || end < start {
-			t.Errorf("%s has no configure:template section around its release history", file.name)
+			t.Errorf("%s has no template section around its release history", file.name)
 			continue
 		}
 		for _, at := range file.heading.FindAllStringIndex(body, -1) {
@@ -176,6 +194,8 @@ func TestTheReleaseHistoryBelongsToTheTemplateSection(t *testing.T) {
 		}
 	}
 }
+
+// configure:template-end
 
 func TestCIGuardsIncompatibleAPIChanges(t *testing.T) {
 	ci := readReleaseFile(t, packageRoot(t), ".github/workflows/ci.yml")

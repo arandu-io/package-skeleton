@@ -10,6 +10,13 @@ a release is corrected by another release and never by moving a tag.
 
 ## [Unreleased]
 
+<!-- configure:template-start -->
+The entries below are the release history of the package skeleton this file
+was cloned with. `configure` removes them, so a configured package starts with
+an empty changelog rather than with somebody else's.
+
+## [0.5.0] - 2026-09-06
+
 ### Changed
 
 - The release history of this repository sits inside a `configure:template`
@@ -37,11 +44,6 @@ a release is corrected by another release and never by moving a tag.
 - `## [0.3.1]` described what `v0.3.0` shipped, and `v0.3.0` had no entry at
   all. `v0.1.0` had none either, and `UPGRADE.md` had notes for neither those
   two nor `v0.3.1`.
-
-<!-- configure:template-start -->
-The entries below are the release history of the package skeleton this file
-was cloned with. `configure` removes them, so a configured package starts with
-an empty changelog rather than with somebody else's.
 
 ## [0.4.0] - 2026-09-05
 

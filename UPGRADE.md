@@ -6,6 +6,16 @@
 The notes below are the release history of the package skeleton this file was
 cloned with. `configure` removes them.
 
+## v0.5.0
+
+Nothing to change in a package already configured from this repository. What
+changed is what the next clone starts with: `configure` now removes this
+repository's release history from `CHANGELOG.md` and `UPGRADE.md`, which it
+previously renamed into the clone and left there.
+
+A package that already carries it corrects its own two files and releases the
+correction; `arandu-wallet` did it in `v0.4.1` and `arandu-tags` in `v0.2.3`.
+
 ## v0.4.0
 
 Version 0.4.0 hands publishing to the framework. The package no longer defines
