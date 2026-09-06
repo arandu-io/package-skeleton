@@ -1,5 +1,11 @@
 # Upgrade Guide
 
+## Unreleased
+
+<!-- configure:template-start -->
+The notes below are the release history of the package skeleton this file was
+cloned with. `configure` removes them.
+
 ## v0.4.0
 
 Version 0.4.0 hands publishing to the framework. The package no longer defines
@@ -69,6 +75,28 @@ paths the views land under. A project that already published them is holding the
 same files at the same addresses; `aru vendor:publish` reports them as
 unchanged rather than rewriting them.
 
+## v0.3.1
+
+Nothing to change. The notes for `v0.3.0` moved out of `Unreleased` and under
+the heading that names them, which is where the release gate reads them from.
+
+## v0.3.0
+
+### Publish the views the package draws
+
+`Publishable` and `Publishes()` arrive on `Module`, with `PublishedPaths`,
+`ViewNames`, `ViewPackages` and `PublishCommand` derived from the archive rather
+than written down separately.
+
+```sh
+go run <module>/publish@latest
+```
+
+`(*Module).Boot` refuses to serve when a view this package renders was never
+published. It names the view and the command, rather than answering the first
+request that reaches it with a 500 -- a missing view is a deployment that is not
+finished, and the place to find that out is the boot.
+
 ## v0.2.0
 
 Version 0.2.0 replaces the generic CRUD Repository with the configured
@@ -122,3 +150,8 @@ attached to the original allocation.
 `ErrNotFound`, route names, migration identity, `DefaultPrefix`, and
 `DefaultPageSize` remain unchanged. Existing URLs and applied migrations do not
 need translation.
+
+## v0.1.0
+
+The first release. Nothing to upgrade from.
+<!-- configure:template-end -->
