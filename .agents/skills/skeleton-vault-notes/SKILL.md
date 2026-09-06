@@ -91,20 +91,14 @@ whatsapp`, because none of the seven is fixed in that repository.
 
 ## Registering a new module slug
 
-The layer vocabulary is a closed set in `plans/cmd/audit-vault/main.go`. A module
-the vault has never seen fails check 4 with `layer='<slug>'` until its slug is
-added:
+Read the `layers` set in `plans/cmd/audit-vault/main.go` at the vault root;
+it is the only authority for accepted layer names. Do not copy that list into
+this skill or infer a layer from a retired repository name. The Redis adapter
+uses `redis`; a defect fixed in the parent library still belongs to `hesape`.
 
-```go
-layers = stringSet("hesape", "framework", "aru", "kyse", "joaju", "ui",
-	"kv", "queue", "storage", "database", "mcp", "arandu", "examples",
-	"swagger", "whatsapp", "")
-```
-
-**That is the only list.** Adding a module is one entry there plus the `MOD-`
-note, and the row in `45-modules/MOC-modules.md`. There is no second registry to
-keep in step, and that is deliberate — every duplicated list in this vault has
-diverged at least once.
+If a new module slug is absent, add it to that set together with its `MOD-`
+note and the row in `45-modules/MOC-modules.md`. Run the vault audit to verify
+the actual metadata, rather than maintaining another registry here.
 
 ## The day note
 
