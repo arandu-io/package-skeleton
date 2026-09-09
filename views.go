@@ -41,13 +41,33 @@ const (
 // and never edited.
 const compiledRoot = "storage/framework/views"
 
-// vendorDir is the directory an application keeps other people's views in.
+// moduleDir is the directory an application keeps installed packages' views in.
 //
 // It is part of the path in the archive and not something the publication adds,
 // which is what makes the archive a literal picture of what lands in the
 // project. Two packages with a view called index are two files under two names
 // below it, and neither shadows the other or the application's own.
-const vendorDir = "vendor"
+//
+// It is not called vendor, and that is the one thing about this name worth
+// writing down. The go command reserves that word twice over, and a tree of
+// published views hits both rules:
+//
+//   - a file under a directory named vendor is left out of the module zip at
+//     any depth, so it stays in this repository and is missing for everyone who
+//     downloads the module. The embed above then matches nothing, and what the
+//     person building the project reads is "pattern resources/views: no
+//     matching files found" -- an error about this package, raised in theirs.
+//   - a package whose import path carries the element cannot be imported at
+//     all: "use of vendored package not allowed". A published view is compiled
+//     into a Go package the application has to import for its init() to
+//     register anything, so the second rule refuses exactly the import Boot
+//     asks for.
+//
+// Both were measured, not reasoned about, and the second is why the name could
+// not be fixed on this side alone: the destination is the address the
+// application looks a package's views up at, and it is the destination that
+// carried the word.
+const moduleDir = "modules"
 
 // Publishes declares the files this package offers, each at the path it takes
 // relative to the root of the project.
@@ -66,7 +86,7 @@ const vendorDir = "vendor"
 //     into the project would put a second copy of those bytes under a second
 //     address, and a page can only reference one of them.
 //   - translations are overridden by writing the lines the application wants
-//     into its own vendor tree, which the catalogue loader already reads. A
+//     into its own override tree, which the catalogue loader already reads. A
 //     copy of every line this package ships is a copy that goes stale, and it
 //     goes stale without saying so.
 //   - migrations are declared and collected, never copied. A copy in the
@@ -143,7 +163,7 @@ func readArchive() (paths, names []string) {
 
 // viewName turns an archive path into the name the view is registered under.
 //
-//	resources/views/vendor/skeleton/index.kyse.go -> vendor.skeleton.index
+//	resources/views/modules/skeleton/index.kyse.go -> modules.skeleton.index
 func viewName(path string) string {
 	name := strings.TrimPrefix(strings.TrimPrefix(path, viewRoot), "/")
 	name = strings.TrimSuffix(name, viewSuffix)

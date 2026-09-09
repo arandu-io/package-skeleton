@@ -39,77 +39,163 @@ func TestTheReleaseSkillUsesTheManifestFrameworkFloor(t *testing.T) {
 	}
 }
 
-func TestVersion020NamesEveryModelFirstIncompatibility(t *testing.T) {
-	root := packageRoot(t)
-	upgrade := readReleaseFile(t, root, "UPGRADE.md")
-	changelog := readReleaseFile(t, root, "CHANGELOG.md")
-
-	if got := strings.Count(changelog, "## [0.2.0] - "); got != 1 {
-		t.Fatalf("v0.2.0 changelog headings = %d, want exactly one pre-versioned entry", got)
-	}
-	if !strings.Contains(upgrade, "## v0.2.0") {
-		t.Fatal("UPGRADE.md has no v0.2.0 entry")
-	}
-
-	incompatibilities := []string{
-		"`(*SkeletonService).Create`",
-		"`(*SkeletonService).Find`",
-		"`(*SkeletonService).List`",
-		"`(*SkeletonRepository).Create`",
-		"`(*SkeletonRepository).Delete`",
-		"`(*SkeletonRepository).Find`",
-		"`(*SkeletonRepository).List`",
-		"`(*SkeletonRepository).Update`",
-		"`NewSkeletonRepository`",
-		"`NewSkeletonService`",
-		"`SkeletonRepository`",
-		"`Skeleton`: old is comparable; new is not",
-	}
-	for _, incompatibility := range incompatibilities {
-		if !strings.Contains(upgrade, incompatibility) {
-			t.Errorf("UPGRADE.md does not name %s", incompatibility)
-		}
-		if !strings.Contains(changelog, incompatibility) {
-			t.Errorf("v0.2.0 notes do not name %s", incompatibility)
-		}
-	}
-}
-
-// TestVersion040NamesEveryPublishingIncompatibility holds the same promise for
-// the release that moved publishing to the framework contract.
+// releasedChangelog is CHANGELOG.md with the [Unreleased] section removed.
 //
-// The CI job that runs apidiff makes it as well, and only there: it needs the
-// release tag and the git history, so a working tree that dropped a symbol
-// without saying so is green locally until a pull request opens. This is the
-// half that fails where the change is written.
-func TestVersion040NamesEveryPublishingIncompatibility(t *testing.T) {
-	root := packageRoot(t)
-	upgrade := readReleaseFile(t, root, "UPGRADE.md")
-	changelog := readReleaseFile(t, root, "CHANGELOG.md")
+// Everything a tag shipped has to be under a version heading. The section above
+// the first one is where work waits, and a release that forgets to move it is a
+// published version whose own changelog calls its contents unreleased -- which
+// is what a released version of a package cloned from here once did.
+//
+// A package that has released nothing has no version heading, and the tests
+// reading this skip rather than fail: there is nothing yet to have forgotten.
+func releasedChangelog(t *testing.T) string {
+	t.Helper()
+	body := readReleaseFile(t, packageRoot(t), "CHANGELOG.md")
+	first := regexp.MustCompile(`(?m)^## \[[0-9]`).FindStringIndex(body)
+	if first == nil {
+		t.Skip("nothing released yet: this package has no versioned changelog entry")
+	}
+	return body[first[0]:]
+}
 
-	if got := strings.Count(changelog, "## [0.4.0] - "); got != 1 {
-		t.Fatalf("v0.4.0 changelog headings = %d, want exactly one pre-versioned entry", got)
-	}
-	if !strings.Contains(upgrade, "## v0.4.0") {
-		t.Fatal("UPGRADE.md has no v0.4.0 entry")
-	}
+// TestEveryActionIsNamedInAReleasedChangelogEntry is the gate that catches a
+// tag pushed without filing what it shipped.
+//
+// An action is added in the same change that adds the capability behind it, so
+// an action still sitting in [Unreleased] means the version that introduced it
+// went out undocumented. It is the cheapest signal of that, and it needs no git
+// history to read.
+func TestEveryActionIsNamedInAReleasedChangelogEntry(t *testing.T) {
+	policy := readReleaseFile(t, packageRoot(t), "policy.go")
+	released := releasedChangelog(t)
 
-	incompatibilities := []string{
-		"`Publishable`",
-		"`Publishes`",
-		"`PublishCommand`",
-		"`foundation.Publishable`",
-		"aru vendor:publish",
+	names := regexp.MustCompile(`(?m)^\t([A-Z][A-Za-z]*) security\.Action = `).FindAllStringSubmatch(policy, -1)
+	if len(names) == 0 {
+		t.Fatal("policy.go declares no actions")
 	}
-	for _, incompatibility := range incompatibilities {
-		if !strings.Contains(upgrade, incompatibility) {
-			t.Errorf("UPGRADE.md does not name %s", incompatibility)
-		}
-		if !strings.Contains(changelog, incompatibility) {
-			t.Errorf("v0.4.0 notes do not name %s", incompatibility)
+	for _, name := range names {
+		if !strings.Contains(released, "`"+name[1]+"`") {
+			t.Errorf("no released changelog entry names %s", name[1])
 		}
 	}
 }
+
+// TestEveryMigrationIsNamedInAReleasedChangelogEntry holds the same for schema.
+//
+// A migration is the one thing an operator has to run before a version serves,
+// so a version that shipped one and did not say so is a version that fails at
+// the first request against a column that is not there.
+func TestEveryMigrationIsNamedInAReleasedChangelogEntry(t *testing.T) {
+	module := readReleaseFile(t, packageRoot(t), "module.go")
+	released := releasedChangelog(t)
+
+	ids := regexp.MustCompile(`"([0-9]{8}_[0-9]{4}_[a-z_]+)"`).FindAllStringSubmatch(module, -1)
+	if len(ids) == 0 {
+		t.Fatal("module.go declares no migrations")
+	}
+	seen := map[string]bool{}
+	for _, id := range ids {
+		if seen[id[1]] {
+			continue
+		}
+		seen[id[1]] = true
+		if !strings.Contains(released, id[1]) {
+			t.Errorf("no released changelog entry names migration %s", id[1])
+		}
+	}
+}
+
+// TestEveryChangelogVersionHasUpgradeNotes keeps the two files describing the
+// same set of releases.
+//
+// They drifted once in the other direction: two packages cloned from here
+// carried this repository's own release history, renamed into them by
+// configure, numbered over the tags of the same name there. The history is
+// inside a configure:template section now, so a clone starts without it.
+func TestEveryChangelogVersionHasUpgradeNotes(t *testing.T) {
+	root := packageRoot(t)
+	changelog := readReleaseFile(t, root, "CHANGELOG.md")
+	upgrade := readReleaseFile(t, root, "UPGRADE.md")
+
+	inChangelog := regexp.MustCompile(`(?m)^## \[([0-9]+\.[0-9]+\.[0-9]+)\] - `).FindAllStringSubmatch(changelog, -1)
+	inUpgrade := regexp.MustCompile(`(?m)^## v([0-9]+\.[0-9]+\.[0-9]+)$`).FindAllStringSubmatch(upgrade, -1)
+	if len(inChangelog) == 0 && len(inUpgrade) == 0 {
+		t.Skip("nothing released yet: neither file has a version heading")
+	}
+
+	versions := func(matches [][]string) map[string]bool {
+		out := map[string]bool{}
+		for _, m := range matches {
+			out[m[1]] = true
+		}
+		return out
+	}
+	logged, upgraded := versions(inChangelog), versions(inUpgrade)
+	for v := range logged {
+		if !upgraded[v] {
+			t.Errorf("CHANGELOG.md has %s and UPGRADE.md has no notes for it", v)
+		}
+	}
+	for v := range upgraded {
+		if !logged[v] {
+			t.Errorf("UPGRADE.md has notes for %s and CHANGELOG.md has no entry for it", v)
+		}
+	}
+}
+
+// The section markers, spelled in halves.
+//
+// configure removes whole lines from the first marker to the second in every
+// file it reads, this one included. A test naming them in full would be a test
+// configure deleted the middle of, and that is not a thought experiment: it
+// happened on the first run, and the clone failed to build with
+// "undefined: start".
+const (
+	markerHalf = "configure:template"
+	openMarker = markerHalf + "-start"
+	shutMarker = markerHalf + "-end"
+)
+
+// configure:template-start
+
+// TestTheReleaseHistoryBelongsToTheTemplateSection keeps this repository's own
+// releases out of every package cloned from it.
+//
+// configure renames the template's values into the two release files and does
+// not otherwise know what they mean, so a release entry written outside the
+// section markers travels into the clone with the entity renamed into it. Two
+// published packages carried this repository's history that way, each shipping
+// a changelog whose highest heading described a release of the skeleton and
+// filing everything they had actually added as unreleased.
+//
+// The test is itself inside the section, because a configured package has no
+// template history to keep anywhere.
+func TestTheReleaseHistoryBelongsToTheTemplateSection(t *testing.T) {
+	root := packageRoot(t)
+	for _, file := range []struct {
+		name    string
+		heading *regexp.Regexp
+	}{
+		{"CHANGELOG.md", regexp.MustCompile(`(?m)^## \[[0-9]+\.[0-9]+\.[0-9]+\] - `)},
+		{"UPGRADE.md", regexp.MustCompile(`(?m)^## v[0-9]+\.[0-9]+\.[0-9]+$`)},
+	} {
+		body := readReleaseFile(t, root, file.name)
+		start := strings.Index(body, openMarker)
+		end := strings.Index(body, shutMarker)
+		if start < 0 || end < start {
+			t.Errorf("%s has no template section around its release history", file.name)
+			continue
+		}
+		for _, at := range file.heading.FindAllStringIndex(body, -1) {
+			if at[0] < start || at[0] > end {
+				t.Errorf("%s has a release heading outside the template section: %q",
+					file.name, strings.TrimSpace(body[at[0]:at[1]]))
+			}
+		}
+	}
+}
+
+// configure:template-end
 
 func TestCIGuardsIncompatibleAPIChanges(t *testing.T) {
 	ci := readReleaseFile(t, packageRoot(t), ".github/workflows/ci.yml")
@@ -136,8 +222,16 @@ func TestTheReleasePublishesThePreVersionedChangelogEntryOnce(t *testing.T) {
 	release := readReleaseFile(t, root, ".github/workflows/release.yml")
 	changelog := readReleaseFile(t, root, "CHANGELOG.md")
 
-	if got := strings.Count(changelog, "## [0.2.0] - "); got != 1 {
-		t.Fatalf("v0.2.0 changelog headings = %d, want one", got)
+	// No version is named here. A clone of this repository has released
+	// nothing, and a test that pinned a version of this one would be a test a
+	// clone inherits and cannot satisfy -- which is how two packages came to
+	// hold this repository's release notes in place.
+	seen := map[string]bool{}
+	for _, heading := range regexp.MustCompile(`(?m)^## \[([0-9]+\.[0-9]+\.[0-9]+)\] - `).FindAllStringSubmatch(changelog, -1) {
+		if seen[heading[1]] {
+			t.Errorf("CHANGELOG.md has more than one %s heading", heading[1])
+		}
+		seen[heading[1]] = true
 	}
 	required := []string{
 		`tags: ["v*"]`,

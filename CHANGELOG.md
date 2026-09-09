@@ -10,6 +10,41 @@ a release is corrected by another release and never by moving a tag.
 
 ## [Unreleased]
 
+<!-- configure:template-start -->
+The entries below are the release history of the package skeleton this file
+was cloned with. `configure` removes them, so a configured package starts with
+an empty changelog rather than with somebody else's.
+
+## [0.5.0] - 2026-09-06
+
+### Changed
+
+- The release history of this repository sits inside a `configure:template`
+  section, so `configure` removes it and a configured package starts with an
+  empty changelog rather than with this one's. It did not: the markers rename
+  the template's values into the two files and nothing else, so two published
+  packages shipped a changelog whose highest heading described a release of this
+  repository, with everything they had actually added filed as unreleased.
+- The release tests name no version of this repository. Two of them asserted
+  that this repository's own notes were present, which a clone inherits and
+  cannot satisfy -- so instead of catching the wrong content they held it in
+  place. What is left is generic: an action declared in `policy.go` and a
+  migration declared in `module.go` have to be named under a version heading
+  rather than under `[Unreleased]`, the two release files have to describe the
+  same set of versions, and no version may be headed twice. A package that has
+  released nothing skips them.
+
+### Added
+
+- `TestTheReleaseHistoryBelongsToTheTemplateSection`, which refuses a release
+  heading written outside the section `configure` removes.
+
+### Fixed
+
+- `## [0.3.1]` described what `v0.3.0` shipped, and `v0.3.0` had no entry at
+  all. `v0.1.0` had none either, and `UPGRADE.md` had notes for neither those
+  two nor `v0.3.1`.
+
 ## [0.4.0] - 2026-09-05
 
 ### Added
@@ -39,6 +74,14 @@ a release is corrected by another release and never by moving a tag.
   question only the application can answer.
 
 ## [0.3.1] - 2026-09-03
+
+### Fixed
+
+- The changelog entry the release gate reads sits under the heading that names
+  its version. The gate takes a release's notes out of that heading, and an
+  entry still under `[Unreleased]` has none to be found by.
+
+## [0.3.0] - 2026-09-03
 
 ### Added
 
@@ -80,3 +123,23 @@ a release is corrected by another release and never by moving a tag.
   `(*SkeletonRepository).Find`, `(*SkeletonRepository).List`, and
   `(*SkeletonRepository).Update`. Add a Repository only for specialized
   queries, reports, projections, read models, exports, or external storage.
+
+## [0.1.0] - 2026-08-26
+
+### Added
+
+- The skeleton somebody clones to write an Arandu package: `Skeleton`,
+  `SkeletonService`, `SkeletonPolicy`, `Module`, `Config`, and
+  `20260823_0001_create_skeletons` written with the Blueprint.
+- `SkeletonPolicy`, and the actions it answers about: `SkeletonView`,
+  `SkeletonList`, `SkeletonCreate`, `SkeletonUpdate` and `SkeletonDelete`.
+- `configure.go`, which turns the template into a package of its own and then
+  deletes itself.
+- The structure gate: a package arrives knowing what it has to look like, so a
+  clone that drifts from the contract fails its own suite rather than somebody
+  else's review.
+- A route prefix a package cannot register is rejected rather than accepted and
+  left unreachable.
+- The skill that explains the package, and the vault note it records itself in,
+  both cloned with it.
+<!-- configure:template-end -->

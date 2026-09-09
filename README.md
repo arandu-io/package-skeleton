@@ -157,7 +157,7 @@ writes nothing. A file changed outside its `arandu:begin custom` markers is
 reported as a conflict and left alone; `--force` publishes over one, and even
 then what is inside the markers is carried forward.
 
-The files land under `resources/views/vendor/:module_slug/`, and from that point
+The files land under `resources/views/modules/:module_slug/`, and from that point
 they are yours. Nothing of this package is compiled beside them, so no view name
 is registered twice and no rule has to decide which of two files won — the
 consequence being that a view of this package that changes later does not reach
@@ -174,7 +174,7 @@ aru view:build
 and import the directory it wrote into, with the other imports:
 
 ```go
-	_ "your/module/path/storage/framework/views/vendor/:module_slug"
+	_ "your/module/path/storage/framework/views/modules/:module_slug"
 ```
 
 Without that import the views are not in the binary, and the module refuses to

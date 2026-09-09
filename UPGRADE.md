@@ -1,5 +1,67 @@
 # Upgrade Guide
 
+## Unreleased
+
+### Published views move out of `vendor/`
+
+The view a package publishes lands in `resources/views/modules/<slug>/` and
+compiles to `storage/framework/views/modules/<slug>`. It used to be `vendor/` in
+both, and that address could not work: the go command reserves the name twice,
+and a tree of published views hit both rules.
+
+A file under a directory named `vendor` is left out of the module zip at any
+depth. The file stays in the package's repository and is missing for everyone
+who downloads it, so the `go:embed` that names its directory matches nothing and
+the person building the project reads
+
+```
+pattern resources/views: no matching files found
+```
+
+— an error about the package, raised in their project. And a package whose
+import path carries the element cannot be imported at all:
+
+```
+bootstrap/app.go:98:2: use of vendored package not allowed
+```
+
+which is exactly the import `(*Module).Boot` asks for. A published view is
+compiled into a Go package the application has to import for its `init()` to
+register anything, so the second rule refused the last step of the install.
+
+Both were reproduced before this changed: `zip.CheckDir` reports the view as
+`file is in vendor directory`, and a package under
+`storage/framework/views/vendor/<slug>` is refused at import.
+
+To move a package already released:
+
+1. `git mv resources/views/vendor resources/views/modules`.
+2. Rename the `vendorDir` constant in `views.go` to `moduleDir`, with the value
+   `modules`.
+3. Release the package, and tell the projects that installed it to publish
+   again. The old files are theirs now, so `aru vendor:publish --apply` writes
+   the new tree beside the old one and the old one is deleted by hand, along
+   with its lines in `vendor-publish.lock` and its import in `bootstrap/app.go`.
+
+Framework `v0.46.4` and Hesape `v0.37.0` refuse a publication that carries the
+reserved name, so a package that has not moved fails its own tests with a
+message naming both rules, rather than failing in the first project that
+installs it.
+
+<!-- configure:template-start -->
+The notes below are the release history of the package skeleton this file was
+cloned with. `configure` removes them.
+
+## v0.5.0
+
+Nothing to change in a package already configured from this repository. What
+changed is what the next clone starts with: `configure` now removes this
+repository's release history from `CHANGELOG.md` and `UPGRADE.md`, which it
+previously renamed into the clone and left there.
+
+A package that already carries it corrects its own two files and releases the
+correction; `arandu-wallet` did it in `v0.4.1` and `arandu-tags` in `v0.2.3`.
+
 ## v0.4.0
 
 Version 0.4.0 hands publishing to the framework. The package no longer defines
@@ -69,6 +131,28 @@ paths the views land under. A project that already published them is holding the
 same files at the same addresses; `aru vendor:publish` reports them as
 unchanged rather than rewriting them.
 
+## v0.3.1
+
+Nothing to change. The notes for `v0.3.0` moved out of `Unreleased` and under
+the heading that names them, which is where the release gate reads them from.
+
+## v0.3.0
+
+### Publish the views the package draws
+
+`Publishable` and `Publishes()` arrive on `Module`, with `PublishedPaths`,
+`ViewNames`, `ViewPackages` and `PublishCommand` derived from the archive rather
+than written down separately.
+
+```sh
+go run <module>/publish@latest
+```
+
+`(*Module).Boot` refuses to serve when a view this package renders was never
+published. It names the view and the command, rather than answering the first
+request that reaches it with a 500 -- a missing view is a deployment that is not
+finished, and the place to find that out is the boot.
+
 ## v0.2.0
 
 Version 0.2.0 replaces the generic CRUD Repository with the configured
@@ -122,3 +206,8 @@ attached to the original allocation.
 `ErrNotFound`, route names, migration identity, `DefaultPrefix`, and
 `DefaultPageSize` remain unchanged. Existing URLs and applied migrations do not
 need translation.
+
+## v0.1.0
+
+The first release. Nothing to upgrade from.
+<!-- configure:template-end -->
