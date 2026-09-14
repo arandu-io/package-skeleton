@@ -1,3 +1,7 @@
+<p align="center">
+  <img src=".github/logo.svg" alt="Arandu" width="180">
+</p>
+
 <!-- configure:template-start -->
 # Arandu package skeleton
 
