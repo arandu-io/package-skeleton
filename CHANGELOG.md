@@ -15,6 +15,14 @@ The entries below are the release history of the package skeleton this file
 was cloned with. `configure` removes them, so a configured package starts with
 an empty changelog rather than with somebody else's.
 
+## [0.6.2] - 2026-09-17
+
+### Fixed
+
+- Record the release entry before tagging so the exact-archive publication gate can publish it. The immutable v0.6.1 tag was left unchanged after its missing-entry refusal.
+- Pin Framework v0.47.1 and Hesape v0.41.1, including the native UI initialization correction.
+- Run the existing checks on develop before promotion to main.
+
 ## [0.5.0] - 2026-09-06
 
 ### Changed

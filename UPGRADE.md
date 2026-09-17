@@ -52,6 +52,10 @@ installs it.
 The notes below are the release history of the package skeleton this file was
 cloned with. `configure` removes them.
 
+## v0.6.2
+
+No API or database change. Newly configured packages use Framework v0.47.1 and Hesape v0.41.1. Existing applications update those requirements normally. The v0.6.1 tag remains immutable; this release supplies the versioned publication metadata it lacked.
+
 ## v0.5.0
 
 Nothing to change in a package already configured from this repository. What
