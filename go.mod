@@ -3,8 +3,8 @@ module github.com/arandu-io/package-skeleton
 go 1.26
 
 require (
-	github.com/arandu-io/framework v0.47.0
-	github.com/arandu-io/hesape v0.41.0
+	github.com/arandu-io/framework v0.47.1
+	github.com/arandu-io/hesape v0.41.1
 )
 
 require (
