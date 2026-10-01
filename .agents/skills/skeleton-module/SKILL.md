@@ -83,12 +83,20 @@ No rule and no Model construction lives in a handler. A handler that held the
 database or called `Skeletons` would bypass the only place the Policy is
 guaranteed to run. Read `skeleton-policy` before writing the Service method.
 
-**3. Let `answer` translate the refusal.** It knows three: `security.ErrForbidden`
-becomes 403, `ErrNotFound` becomes 404, and a `validation.Errors` becomes 422
-with the rejected field names, which are the client's own and give nothing away.
-Anything else is *returned*, not swallowed — the framework turns it into the
-error page in development and a 500 in production, which is the honest outcome.
-Answering 200 with an empty body is the failure nobody debugs.
+**3. Return the refusal; the router translates it.** The framework's action
+adapter answers an error itself: `validation.Errors` becomes 422 with the
+rejected field names, which are the client's own and give nothing away;
+`security.ErrForbidden` becomes 403; `model.ErrModelNotFound` and
+`database.ErrRecordNotFound` become 404; `security.ErrCSRF` becomes 419; and an
+error with an `HTTPStatus() int` method answers that status — through the same
+refusal path the route guards use, so the error's own text never reaches the
+person. A hand-written mapping like `answer` repeats that table and is
+redundant; what it still has to cover is a sentinel of the module's own, such
+as `ErrNotFound`, which the adapter only recognises once it wraps
+`model.ErrModelNotFound` or carries `HTTPStatus()`. Anything unclaimed is
+*returned*, not swallowed — the framework turns it into the error page in
+development and a 500 in production, which is the honest outcome. Answering
+200 with an empty body is the failure nobody debugs.
 
 **4. Add the case to the route test.** `TestAVisitorWithNoSessionReachesNothing`
 at `tests/Feature/routes_test.go:59` is a table of every route, and it asserts
@@ -100,7 +108,11 @@ passes.
 
 `m.subject(r)` loads the session and returns `security.Guest(m.cfg.Tenant)` when
 there is none. Nothing else reads who is acting, and no handler takes a user id
-from the request.
+from the request. Behind `RequireAuth` (or `LoadSubject` on a public route) the
+guard has already loaded the subject and put it on the request context, so a
+handler there reads it with `ctx.User()` instead of loading the session a second
+time. Only the subject travels on the context; the Grant is still issued by the
+Policy, per call.
 
 The guest's tenant is the one place in this package where a tenant does not come
 from a Grant, and it is because there is no Grant yet. It comes from
