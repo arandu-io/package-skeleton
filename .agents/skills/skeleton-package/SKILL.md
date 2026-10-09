@@ -169,6 +169,11 @@ the package ships, the change belongs in the package.
 | `403` | the policy refused, or no rule allows the action yet |
 | `404` | no row with that id in this tenant |
 | `303` back to the page the request came from | the input was rejected; the messages and what was typed are in the flash |
+| `422` `application/problem+json` | the input was rejected and the request asked for JSON; the messages are in `errors`, keyed by field |
+
+A request that asks for JSON (an `Accept` naming `application/json`, or an XHR
+that is not htmx) gets the 403 and the 404 as problem documents too. The
+sign-in redirect is the same for every client.
 
 The package does not choose these: its handlers return what the service
 returned, and the framework's router answers it. A refusal carries no detail

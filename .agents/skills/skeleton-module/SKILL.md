@@ -110,13 +110,17 @@ answers it, in one place, through the same refusal path the route guards use:
 
 | the service returned | the router answers |
 | --- | --- |
-| `validation.Errors` | 303 back where the request came from, with the messages and what was typed in the flash |
+| `validation.Errors` | 303 back where the request came from, with the messages and what was typed in the flash; to a request that wants JSON, 422 `application/problem+json` with the messages in `errors`, keyed by field |
 | `ErrNotFound`, or any `model.ErrModelNotFound` | 404 |
 | `security.ErrForbidden`, which a policy refusal is | 403 |
 | `security.ErrCSRF` | 419 |
 | `database.ErrUniqueViolation` | 409 |
 | an error with an `HTTPStatus() int` method | that status |
 | anything else | the error page in development, 500 in production |
+
+A request wants JSON when its `Accept` names `application/json`, or when it is an
+XHR that is not htmx; it gets every status above as a problem document rather
+than a page.
 
 The answer is the status and its standard sentence, never the error's own text:
 telling a client why a policy said no tells it what exists, one request at a

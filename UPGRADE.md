@@ -281,11 +281,11 @@ open `Routes` with `r = r.Group("", middleware.RequireAuth(m.sessions))`; make
 `ErrNotFound` wrap `model.ErrModelNotFound`; and remove `Tenant` from `Config`
 and from the wiring in `bootstrap/app.go`.
 
-A client that cannot follow a redirect no longer reads the rejected field names
-from the body. A module that has to answer such a client 422 returns an error
-type of its own with an `HTTPStatus() int` method, which the router answers with
-that status and its standard sentence -- still without the field names, which go
-to the flash or nowhere.
+The table is what a page sees. A client that asks for JSON -- an `Accept`
+naming `application/json`, or an XHR that is not htmx -- is not redirected after
+a rejected input: Framework `v0.51.0` answers it 422 `application/problem+json`,
+with the messages in `errors` keyed by field, and answers the 403 and the 404 as
+problem documents too. Only the sign-in redirect is the same for every client.
 
 <!-- configure:template-start -->
 The notes below are the release history of the package skeleton this file was

@@ -225,7 +225,9 @@ opened. That is the state the package ships in, and it is deliberate.
 
 A handler returns the error the service returned, and the router answers it: a
 policy refusal is 403, a record that is not there is 404, and a rejected input
-goes back where it came from with the messages in the flash. No handler maps an
+goes back where it came from with the messages in the flash. A request that asks
+for JSON gets the same statuses as `application/problem+json` documents, and a
+rejected input as a 422 with the messages keyed by field. No handler maps an
 error to a status itself.
 
 ## Open the policy
