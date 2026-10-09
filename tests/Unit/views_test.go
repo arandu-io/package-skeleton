@@ -44,7 +44,7 @@ func module(t *testing.T) *skeleton.Module {
 	t.Helper()
 
 	sessions := security.NewSessionStore([]byte(sessionKey), time.Hour, false, security.NewMemoryBackend())
-	m, err := skeleton.New(skeleton.Config{Tenant: "acme"}, data.Wrap(nil, data.DialectSQLite), sessions)
+	m, err := skeleton.New(skeleton.Config{}, data.Wrap(nil, data.DialectSQLite), sessions)
 	if err != nil {
 		t.Fatalf("building the module: %v", err)
 	}

@@ -3,12 +3,14 @@ package unit_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/arandu-io/framework/data"
 	"github.com/arandu-io/framework/security"
 	"github.com/arandu-io/hesape/database/model"
+	"github.com/arandu-io/hesape/database/query"
 
 	skeleton "github.com/arandu-io/package-skeleton"
 )
@@ -17,7 +19,7 @@ import (
 // are checked against the code rather than described in a document:
 //
 //  1. the policy denies every action, and has no branch that allows one;
-//  2. the service authorizes before constructing or executing a Model query;
+//  2. the service authorizes before constructing or running the generated query;
 //  3. the tenant comes from the Grant;
 //  4. nothing reaches the database without passing through the first two.
 //
@@ -112,9 +114,10 @@ func nilHandle() *data.DB { return data.Wrap(nil, data.DialectSQLite) }
 func TestTheServiceRefusesBeforeReachingTheModel(t *testing.T) {
 	t.Parallel()
 
-	// A nil handle makes even construction of Skeletons panic at
-	// GetQueryGrammar. This catches moving the configured Model entry point --
-	// not only its terminal -- ahead of authorization.
+	// A nil handle makes even construction of Skeletons panic, at the
+	// GetQueryGrammar the query asks the handle for. This catches moving the
+	// generated query constructor -- not only its terminal -- ahead of
+	// authorization.
 	service := skeleton.NewSkeletonService(nil)
 	ctx := context.Background()
 
@@ -129,21 +132,124 @@ func TestTheServiceRefusesBeforeReachingTheModel(t *testing.T) {
 	}
 }
 
-func TestSkeletonsReturnsAWiredTenantScopedModel(t *testing.T) {
+// recordingHandle runs nothing and keeps every statement it is handed, so a
+// test reads what the table compiles instead of reading its settings. The table
+// keeps its settings to itself; what it writes is the behaviour they decide.
+type recordingHandle struct {
+	*data.DB
+	statements []recordedStatement
+}
+
+type recordedStatement struct {
+	sql      string
+	bindings []any
+}
+
+// newRecordingHandle borrows the grammar and the processor of an SQLite handle
+// over no database, and answers every statement itself.
+func newRecordingHandle() *recordingHandle { return &recordingHandle{DB: nilHandle()} }
+
+func (h *recordingHandle) record(sql string, bindings []any) {
+	h.statements = append(h.statements, recordedStatement{sql: sql, bindings: slices.Clone(bindings)})
+}
+
+func (h *recordingHandle) Select(_ context.Context, sql string, bindings []any, _ bool) ([]query.Record, error) {
+	h.record(sql, bindings)
+	return nil, nil
+}
+
+func (h *recordingHandle) Insert(_ context.Context, sql string, bindings []any) (bool, error) {
+	h.record(sql, bindings)
+	return true, nil
+}
+
+func (h *recordingHandle) Update(_ context.Context, sql string, bindings []any) (int64, error) {
+	h.record(sql, bindings)
+	return 1, nil
+}
+
+func (h *recordingHandle) Delete(_ context.Context, sql string, bindings []any) (int64, error) {
+	h.record(sql, bindings)
+	return 1, nil
+}
+
+func (h *recordingHandle) Statement(_ context.Context, sql string, bindings []any) (bool, error) {
+	h.record(sql, bindings)
+	return true, nil
+}
+
+// first is the first recorded statement that starts with verb.
+func (h *recordingHandle) first(t *testing.T, verb string) recordedStatement {
+	t.Helper()
+	for _, statement := range h.statements {
+		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(statement.sql)), verb) {
+			return statement
+		}
+	}
+	t.Fatalf("no %s statement was issued; recorded %v", verb, h.statements)
+	return recordedStatement{}
+}
+
+// TestSkeletonsReturnsAWiredTenantScopedQuery holds what skeletonTable declares,
+// through what it makes the generated query do: the table it reads, a key the
+// application writes and the engine never fills, and a tenant_id taken from the
+// Grant on the way in and on the way out.
+func TestSkeletonsReturnsAWiredTenantScopedQuery(t *testing.T) {
 	t.Parallel()
 
-	rows := skeleton.Skeletons(nilHandle())
-	if rows.GetTable() != "skeletons" {
-		t.Fatalf("Skeletons table = %q, want skeletons", rows.GetTable())
+	ctx := context.Background()
+	handle := newRecordingHandle()
+	table := skeleton.Skeletons(handle).Base().Table()
+	if table.Name() != "skeletons" {
+		t.Fatalf("Skeletons table = %q, want skeletons", table.Name())
 	}
-	if rows.KeyType != "string" || rows.Incrementing {
-		t.Fatalf("Skeletons key is type %q, incrementing %t; want application-generated text", rows.KeyType, rows.Incrementing)
+	if key := table.MorphModel(handle); key.GetKeyName() != "id" || key.GetKeyType() != "string" {
+		t.Fatalf("Skeletons key is %q of type %q; want id, as text", key.GetKeyName(), key.GetKeyType())
 	}
-	if rows.TenantColumn != "tenant_id" {
-		t.Fatalf("Skeletons tenant column = %q, want tenant_id", rows.TenantColumn)
+
+	row, err := skeleton.Skeletons(handle).New()
+	if err != nil {
+		t.Fatalf("building a row: %v", err)
 	}
-	if model.ModelOf(rows.Entity) != rows {
-		t.Fatal("Skeletons returned an entity whose embedded Model is not wired to it")
+	if row.Table() != table {
+		t.Fatal("Skeletons returned an entity whose embedded Model is not wired to its table")
+	}
+
+	// The key is application-generated text: the insert carries the one the row
+	// was given, and the engine is never asked for one. An incrementing key
+	// would go through the processor, which runs on no database here, and a key
+	// the model generated would replace the one the service wrote.
+	row.ID = "record-1"
+	if _, err := row.Save(ctx, security.SystemGrant(skeleton.SkeletonCreate, "acme")); err != nil {
+		t.Fatalf("saving through the recording handle: %v", err)
+	}
+	insert := handle.first(t, "insert")
+	if !slices.Contains(insert.bindings, any("record-1")) || row.ID != "record-1" {
+		t.Fatalf("the insert %q %v does not write the application key, or the row lost it (%q)", insert.sql, insert.bindings, row.ID)
+	}
+	if !strings.Contains(insert.sql, "tenant_id") || !slices.Contains(insert.bindings, any("acme")) {
+		t.Fatalf("the insert %q %v does not stamp tenant_id with the Grant's tenant", insert.sql, insert.bindings)
+	}
+
+	// And the tenant column scopes a read by the Grant's tenant.
+	if _, err := skeleton.Skeletons(handle).WhereKey("record-1").First(ctx, security.SystemGrant(skeleton.SkeletonView, "acme")); err != nil {
+		t.Fatalf("reading through the recording handle: %v", err)
+	}
+	read := handle.first(t, "select")
+	if !strings.Contains(read.sql, "tenant_id") || !slices.Contains(read.bindings, any("acme")) {
+		t.Fatalf("the read %q %v is not filtered by tenant_id with the Grant's tenant", read.sql, read.bindings)
+	}
+}
+
+// TestTheMissingRecordIsTheModelsNotFound holds the one link between this
+// package's sentinel and the router's answer. The router answers
+// model.ErrModelNotFound with 404 and has never heard of ErrNotFound, so the
+// sentinel is a 404 only while it wraps the model's.
+func TestTheMissingRecordIsTheModelsNotFound(t *testing.T) {
+	t.Parallel()
+
+	if !errors.Is(skeleton.ErrNotFound, model.ErrModelNotFound) {
+		t.Fatal("ErrNotFound does not wrap model.ErrModelNotFound, so the router would answer a missing record with 500")
 	}
 }
 
@@ -152,7 +258,7 @@ func TestASystemGrantWithoutATenantReachesNothing(t *testing.T) {
 
 	// A system grant with no tenant names no customer. The Model refuses it
 	// while preparing the query, before the nil handle can issue a statement.
-	_, err := skeleton.Skeletons(nilHandle()).NewQuery().WhereKey("record-1").First(
+	_, err := skeleton.Skeletons(nilHandle()).WhereKey("record-1").First(
 		context.Background(), security.SystemGrant(skeleton.SkeletonView, ""))
 	if !errors.Is(err, model.ErrNoTenant) {
 		t.Fatalf("a system grant with no tenant returned %v, want ErrNoTenant", err)
@@ -193,20 +299,19 @@ func TestTheConfigurationRefusesWhatCannotWork(t *testing.T) {
 	t.Parallel()
 
 	for name, cfg := range map[string]skeleton.Config{
-		"no tenant":        {},
-		"tenant with a /":  {Tenant: "acme/reports"},
-		"tenant uppercase": {Tenant: "Acme"},
-		"relative prefix":  {Tenant: "acme", Prefix: "skeleton"},
-		"page size too big": {Tenant: "acme",
-			PageSize: skeleton.MaxPageSize + 1},
-		"negative page size": {Tenant: "acme", PageSize: -1},
+		"relative prefix":    {Prefix: "skeleton"},
+		"page size too big":  {PageSize: skeleton.MaxPageSize + 1},
+		"negative page size": {PageSize: -1},
 	} {
 		if err := cfg.Validate(); err == nil {
 			t.Errorf("the configuration with %s was accepted", name)
 		}
 	}
 
-	if err := (skeleton.Config{Tenant: "acme"}).Validate(); err != nil {
-		t.Fatalf("a valid configuration was refused: %v", err)
+	// The zero value is the configuration an application that changes nothing
+	// writes, and it has to be one New accepts: there is no tenant to name,
+	// because every tenant comes from the Grant.
+	if err := (skeleton.Config{}).Validate(); err != nil {
+		t.Fatalf("the zero configuration was refused: %v", err)
 	}
 }

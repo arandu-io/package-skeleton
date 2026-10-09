@@ -25,7 +25,7 @@ import (
 // properties:
 //
 //  1. every exported Service method calls Authorize before it reaches the
-//     configured Model;
+//     generated query;
 //  2. the tenant comes from the Grant, and nothing a request carried is read as
 //     one;
 //  3. the Model remains tenant-scoped and CRUD does not grow a second data path;
@@ -165,7 +165,7 @@ func TestEveryServiceMethodAuthorizesBeforeTheModel(t *testing.T) {
 					source.path, function.Name.Name)
 			}
 			if reach == token.NoPos {
-				t.Errorf("%s: %s never reaches the configured Model, so this audit found no data boundary to order",
+				t.Errorf("%s: %s never reaches the generated query, so this audit found no data boundary to order",
 					source.path, function.Name.Name)
 			}
 			if decided != token.NoPos && reach != token.NoPos && decided > reach {
@@ -179,7 +179,7 @@ func TestEveryServiceMethodAuthorizesBeforeTheModel(t *testing.T) {
 	}
 }
 
-// firstModelReach is where a Service first constructs the configured Model or
+// firstModelReach is where a Service first constructs the generated query or
 // calls a promoted write terminal. Skeletons itself counts: moving only its
 // construction before Authorize is the mutation this audit exists to reject.
 func firstModelReach(body *ast.BlockStmt) token.Pos {
