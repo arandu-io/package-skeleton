@@ -1,6 +1,6 @@
-// Package skeleton is an Arandu module: one entity, one policy that decides
-// about it, one service that owns its Model-first data path, and the routes that
-// reach them.
+// Package skeleton is an Arandu module: one entity with its generated query, one
+// policy that decides about it, one service that orchestrates each use case, and
+// the routes that reach them.
 //
 // The files are laid out by role rather than by layer, so the whole package
 // reads top to bottom:
@@ -9,7 +9,7 @@
 //	config.go      -> what the application passes in
 //	model.go       -> the entity, and what it may answer with
 //	policy.go      -> who may do what
-//	service.go     -> the rules and Model access, after authorization
+//	service.go     -> the use cases, and Model access after authorization
 //	views.go       -> the files the application takes ownership of
 //
 // An application registers it explicitly. There is no service provider, no
@@ -27,8 +27,8 @@ import (
 	"github.com/arandu-io/framework/data"
 	"github.com/arandu-io/framework/foundation"
 	fhttp "github.com/arandu-io/framework/http"
+	"github.com/arandu-io/framework/http/middleware"
 	"github.com/arandu-io/framework/security"
-	"github.com/arandu-io/framework/validation"
 	"github.com/arandu-io/hesape/database/migrations"
 	"github.com/arandu-io/hesape/database/schema"
 	"github.com/arandu-io/hesape/view"
@@ -77,7 +77,7 @@ func New(cfg Config, db *data.DB, sessions *security.SessionStore) (*Module, err
 		return nil, errors.New("skeleton: New needs a database handle: this package owns a table, and there is no in-memory mode that would let it start without one")
 	}
 	if sessions == nil {
-		return nil, errors.New("skeleton: New needs a session store: it is where the subject comes from, and a request with no subject cannot be authorized")
+		return nil, errors.New("skeleton: New needs a session store: every route is mounted behind RequireAuth, which reads it to admit a request and to put who is asking on it")
 	}
 	cfg = cfg.withDefaults()
 	return &Module{
@@ -98,7 +98,16 @@ func (m *Module) Name() string { return "skeleton" }
 // They are named, so a URL is built from a name rather than written out a
 // second time somewhere else -- two spellings of one address disagree, and the
 // failure when they do is a link to a 404.
+//
+// Every route needs somebody signed in, so the guard is mounted once, on the
+// router they are registered on, rather than route by route: r is replaced by
+// the guarded group before the first registration, and no unguarded router is
+// left in scope for the next route to be added to. RequireAuth sends a request
+// with no session to the sign-in screen, and puts the subject of one that has a
+// session on its context, where a handler reads it with ctx.User.
 func (m *Module) Routes(r *fhttp.Router) {
+	r = r.Group("", middleware.RequireAuth(m.sessions))
+
 	r.Action(stdhttp.MethodGet, m.cfg.Prefix, m.index).Name("skeleton.index")
 	r.Action(stdhttp.MethodGet, m.cfg.Prefix+"/{id}", m.show).Name("skeleton.show")
 	r.Action(stdhttp.MethodPost, m.cfg.Prefix, m.store).Name("skeleton.store")
@@ -172,6 +181,21 @@ func (m *Module) Boot(context.Context) error {
 // rule, database handle or Model construction lives here. A handler that
 // reached data directly would skip the service's policy boundary, and the
 // layout makes that visible rather than relying on review.
+//
+// Who is asking comes from ctx.User, which reads the subject RequireAuth put on
+// the request. No handler loads the session again or takes an identity from the
+// input. The second value ctx.User answers is not consulted: behind the guard
+// there is always a subject, and were there none, the zero subject it answers
+// would be refused by security.Authorize before any policy ran.
+//
+// An error from the service is returned as it is, and the router answers it:
+// validation.Errors goes back where the request came from with the messages in
+// the flash, ErrNotFound is 404 because it wraps model.ErrModelNotFound, and a
+// policy refusal is 403. The answer is the status and its standard sentence,
+// never the error's own text -- telling a client why a policy said no tells it
+// what exists, one request at a time, and the reason belongs in the log. Any
+// other error is one nobody expected, and it reaches the error page rather than
+// a 200 with an empty body.
 
 // index answers a page of records.
 func (m *Module) index(ctx *fhttp.Context) error {
@@ -181,9 +205,10 @@ func (m *Module) index(ctx *fhttp.Context) error {
 		Limit:  m.cfg.PageSize,
 	}
 
-	records, err := m.svc.List(ctx.Ctx(), m.subject(ctx.Request), query)
+	who, _ := ctx.User()
+	records, err := m.svc.List(ctx.Ctx(), who, query)
 	if err != nil {
-		return m.answer(ctx, err)
+		return err
 	}
 
 	// A full page is the only one that can have a successor. A short page is
@@ -198,9 +223,10 @@ func (m *Module) index(ctx *fhttp.Context) error {
 
 // show answers one record.
 func (m *Module) show(ctx *fhttp.Context) error {
-	record, err := m.svc.Find(ctx.Ctx(), m.subject(ctx.Request), ctx.Param("id"))
+	who, _ := ctx.User()
+	record, err := m.svc.Find(ctx.Ctx(), who, ctx.Param("id"))
 	if err != nil {
-		return m.answer(ctx, err)
+		return err
 	}
 	return ctx.JSON(stdhttp.StatusOK, resourceFromPointer(record))
 }
@@ -209,63 +235,12 @@ func (m *Module) show(ctx *fhttp.Context) error {
 func (m *Module) store(ctx *fhttp.Context) error {
 	in := CreateRequest{Name: ctx.Input("name")}
 
-	record, err := m.svc.Create(ctx.Ctx(), m.subject(ctx.Request), in)
+	who, _ := ctx.User()
+	record, err := m.svc.Create(ctx.Ctx(), who, in)
 	if err != nil {
-		return m.answer(ctx, err)
+		return err
 	}
 	return ctx.JSON(stdhttp.StatusCreated, resourceFromPointer(record))
-}
-
-// subject reads who is acting from the session, and from nowhere else.
-//
-// A request with no readable session is a declared guest and not an empty
-// subject. The difference matters: an empty subject is refused before the
-// policy is consulted, because it is almost always a session that failed to
-// load, and a policy asked about nobody answers about nobody. A guest reaches
-// the policy and is refused there, by a rule somebody wrote -- or allowed,
-// where the package means to serve a reader who never signed in.
-//
-// The tenant of that guest is the application's, from configuration. It is the
-// one place a tenant does not come from a Grant, and it is because there is no
-// Grant yet: everywhere downstream, data.Tenant is what the statements take.
-func (m *Module) subject(r *stdhttp.Request) security.Subject {
-	sub, err := m.sessions.Load(r.Context(), r)
-	if err != nil || sub.ID == "" {
-		return security.Guest(m.cfg.Tenant)
-	}
-	return sub
-}
-
-// answer turns what the service refused into something the client can act on.
-//
-// Three refusals have an answer, and everything else does not. An error this
-// package did not expect is returned rather than swallowed: the framework turns
-// it into the error page in development and a 500 in production, which is the
-// honest outcome. Answering 200 with an empty body is the failure nobody
-// debugs.
-//
-// A refusal is answered with a status and no detail. Telling the client why a
-// policy said no is telling them what exists and what does not, one request at
-// a time; the reason is in the log, where the person operating the system reads
-// it and the person probing it does not.
-func (m *Module) answer(ctx *fhttp.Context, err error) error {
-	switch {
-	case errors.Is(err, security.ErrForbidden):
-		fhttp.Refuse(ctx.Response, ctx.Request, stdhttp.StatusForbidden, "forbidden")
-		return nil
-	case errors.Is(err, ErrNotFound):
-		fhttp.Refuse(ctx.Response, ctx.Request, stdhttp.StatusNotFound, "not found")
-		return nil
-	}
-
-	// A rejected input is the answer rather than a failure, and the fields that
-	// were rejected are the client's own, so naming them gives nothing away.
-	var rejected validation.Errors
-	if errors.As(err, &rejected) {
-		fhttp.Refuse(ctx.Response, ctx.Request, stdhttp.StatusUnprocessableEntity, rejected.Error())
-		return nil
-	}
-	return err
 }
 
 // Migrations declares the schema this module owns.

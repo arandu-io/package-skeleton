@@ -67,9 +67,12 @@ func (SkeletonPolicy) Can(ctx context.Context, s security.Subject, a security.Ac
 	//		return nil
 	//	}
 	//
-	// A guest is a reader the caller declared anonymous on purpose, and is the
-	// only subject that arrives without an id. Answer it explicitly or it falls
-	// through to the refusal below, which is the safe direction:
+	// The routes of this package sit behind RequireAuth, so none of them asks
+	// about a guest. An application that calls the service from a public route
+	// of its own may, with security.Guest: a reader it declared anonymous on
+	// purpose, and the only subject that arrives without an id. Answer it
+	// explicitly or it falls through to the refusal below, which is the safe
+	// direction:
 	//
 	//	if a == SkeletonView && s.IsGuest() && record.Published {
 	//		return nil

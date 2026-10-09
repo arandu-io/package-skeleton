@@ -3,8 +3,6 @@ package skeleton
 import (
 	"fmt"
 	"net/http"
-
-	"github.com/arandu-io/framework/security"
 )
 
 // The defaults for the optional settings. They are constants rather than
@@ -29,15 +27,12 @@ const (
 // silently keeps its default, and the failure shows up as behaviour nobody
 // asked for rather than as an error. Here a field that does not exist does not
 // compile.
+//
+// It names no tenant, and that is deliberate. Every route sits behind
+// RequireAuth, so the tenant of every statement is the one the Grant carries,
+// from the session of whoever is asking; a tenant written here would be a
+// second place for one to come from. The zero value is a valid configuration.
 type Config struct {
-	// Tenant is the customer a visitor with no session is read as.
-	//
-	// It is required, and it comes from the application's own configuration --
-	// never from the request. A tenant a visitor could name is a visitor who
-	// chooses whose rows they read. Everywhere there is a session, the tenant
-	// comes from the Grant instead, and this value is not consulted at all.
-	Tenant string
-
 	// Prefix is the path the routes are mounted under. Empty means
 	// DefaultPrefix.
 	Prefix string
@@ -54,15 +49,6 @@ type Config struct {
 // It is called by New, so an application with a setting that cannot work fails
 // where it is wired rather than on the first request that needed it.
 func (c Config) Validate() error {
-	if c.Tenant == "" {
-		return fmt.Errorf("skeleton: Config.Tenant is required: a visitor with no session has to be read as some customer, and it cannot be one the request names")
-	}
-	// The same rule the framework applies to every tenant it accepts. A tenant
-	// is concatenated into a storage path, a cache key and a lock name, so one
-	// carrying a separator lands in another tenant's namespace.
-	if !security.ValidTenant(c.Tenant) {
-		return fmt.Errorf("skeleton: Config.Tenant is %q, which cannot be a tenant: lowercase letters, digits, - and _, up to 64 characters", c.Tenant)
-	}
 	if c.Prefix != "" && c.Prefix[0] != '/' {
 		return fmt.Errorf("skeleton: Config.Prefix is %q and has to start with /", c.Prefix)
 	}

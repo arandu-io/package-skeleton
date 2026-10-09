@@ -1,7 +1,7 @@
 package skeleton
 
 import (
-	"errors"
+	"fmt"
 	"time"
 
 	"github.com/arandu-io/hesape/database/model"
@@ -72,7 +72,10 @@ var skeletonTable = model.NewTable(model.TableSpec{
 
 // ErrNotFound is returned when no row matches, including when the row exists
 // in another tenant. The two cases are deliberately indistinguishable.
-var ErrNotFound = errors.New("skeleton: record not found")
+//
+// It wraps model.ErrModelNotFound, so the router answers it with 404 and a
+// caller can still ask for it by name with errors.Is.
+var ErrNotFound = fmt.Errorf("skeleton: record not found: %w", model.ErrModelNotFound)
 
 // Resource is the list of fields one Skeleton is allowed to answer with.
 //
