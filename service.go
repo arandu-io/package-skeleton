@@ -25,7 +25,9 @@ var sortableSkeleton = map[string]string{
 	"created_at": "created_at",
 }
 
-// SkeletonService holds the rules of this package.
+// SkeletonService orchestrates the use cases of this package: it validates the
+// request, asks the policy for a Grant, applies the rules the entity holds for
+// itself, and persists with that Grant.
 //
 // It receives its collaborators through the constructor. There is no container
 // and no resolution by reflection: what this service is made of is written at
@@ -87,11 +89,13 @@ func (s *SkeletonService) Create(ctx context.Context, actor security.Subject, in
 	if proposed.ID, err = data.NewID(); err != nil {
 		return nil, err
 	}
-	instance, err := Skeletons(s.db).New()
+	// The row is built by the query so it is wired to its table, and its fields
+	// are assigned one by one: copying proposed over it would replace the
+	// embedded model with the unwired one of a struct literal.
+	candidate, err := Skeletons(s.db).New()
 	if err != nil {
 		return nil, err
 	}
-	candidate := instance
 	candidate.ID = proposed.ID
 	candidate.TenantID = data.Tenant(g)
 	candidate.Name = proposed.Name

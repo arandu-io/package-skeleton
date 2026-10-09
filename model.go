@@ -10,8 +10,11 @@ import (
 // Skeleton is the entity this package owns.
 //
 // It embeds the model, so a row returned by a query carries the connection and
-// can be saved again. Build new rows through Skeletons: a struct literal has no
-// connection and its write methods return model.ErrUnwired.
+// can be saved again. Build a new row with Skeletons(db).New(): a struct
+// literal has no connection and its write methods return model.ErrUnwired.
+//
+// Skeletons, SkeletonQuery and SkeletonCollection are generated beside this
+// file, in SkeletonQuery.go, by aru model:build.
 type Skeleton struct {
 	model.Model
 
@@ -32,18 +35,40 @@ type Skeleton struct {
 	CreatedAt time.Time `db:"created_at"`
 }
 
-// skeletonTable is the table of Skeleton.
-// Its query, Skeletons, is generated beside it by aru model:build.
+// skeletonTable is the table Skeleton is a row of, declared once. Its query,
+// Skeletons, is generated beside it and is the one way to reach the rows.
 //
-// Skeletons returns the configured model for the skeletons table.
-//
-// The primary key is application-generated text, so it does not increment.
-// The tenant scope remains on the model's tenant_id default.
+// ManualKey because the primary key is text the application writes: the
+// database neither increments it nor fills it. The tenant scope is left at its
+// tenant_id default.
 var skeletonTable = model.NewTable(model.TableSpec{
 	Name:      "skeletons",
 	New:       func() model.Entity { return new(Skeleton) },
 	ManualKey: true,
 })
+
+// arandu:begin custom
+// The rules of the entity itself go here: invariants, derived values and
+// transitions that change only the fields of this row, such as a CanX() bool
+// beside the X(...) error it guards. They are pure -- no database, no network,
+// no clock they read for themselves, no Grant -- so the time a transition
+// stamps arrives as a parameter. Orchestration stays in the service: it
+// validates the request, asks the policy, calls these rules and saves with the
+// Grant. A local scope is a method on *SkeletonQuery in this block, and a
+// relation is registered on skeletonTable from an init function.
+//
+//	// CanRename reports whether the record may take this name.
+//	func (s Skeleton) CanRename(name string) bool { return name != "" && name != s.Name }
+//
+//	// Rename gives the record a new name, and refuses one it cannot take.
+//	func (s *Skeleton) Rename(name string) error {
+//		if !s.CanRename(name) {
+//			return fmt.Errorf("skeleton: %q cannot be the new name of this record", name)
+//		}
+//		s.Name = name
+//		return nil
+//	}
+// arandu:end custom
 
 // ErrNotFound is returned when no row matches, including when the row exists
 // in another tenant. The two cases are deliberately indistinguishable.
