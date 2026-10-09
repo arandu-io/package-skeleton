@@ -15,6 +15,30 @@ The entries below are the release history of the package skeleton this file
 was cloned with. `configure` removes them, so a configured package starts with
 an empty changelog rather than with somebody else's.
 
+## [0.7.1] - 2026-10-09
+
+### Fixed
+
+- The release workflow vetted `configure.go` outside the template section, so
+  a configured package, which no longer has the file, failed the exact-archive
+  check of the first tag it pushed. The line is inside a section of its own now
+  and leaves with the file.
+- `SECURITY.md` built the advisory address as
+  `github.com/:author_username/:module_slug`, which is not the repository of a
+  module published as `arandu-<slug>`. It is built from the module path.
+- The upgrade notes for the `vendor/` move and the concrete model sat under an
+  `Unreleased` heading outside the template section, and every configured
+  package inherited them. They are under `v0.6.0` and `v0.7.0` inside it, and a
+  configured package starts with an empty upgrade guide.
+- `v0.6.0` had no changelog entry. It has one.
+
+### Added
+
+- `TestAConfiguredPackageCarriesNothingOfTheTemplatesOwn`, which runs
+  `configure` on a copy of the tree as `github.com/hyz-is/arandu-widget` and
+  reads the release workflow, `SECURITY.md`, `arandu.mod.toml` (whose name
+  must be `hyz-is/widget`), `UPGRADE.md` and `CHANGELOG.md` that come out.
+
 ## [0.7.0] - 2026-10-09
 
 ### Changed

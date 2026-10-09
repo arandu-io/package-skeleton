@@ -6,6 +6,22 @@
 The notes below are the release history of the package skeleton this file was
 cloned with. `configure` removes them.
 
+## v0.7.1
+
+No API or database change. What changed is what the next clone starts with. A
+package already configured from an earlier template corrects three files by
+hand, once:
+
+1. In `.github/workflows/release.yml`, delete the line
+   `GOWORK=off go vet configure.go`. Until it is gone, every tag fails the
+   exact-archive check, because the file it names was deleted by `configure`.
+2. In `SECURITY.md`, point the advisory address at the repository the module
+   path names: `https://<module path>/security/advisories/new`.
+3. In `UPGRADE.md`, delete the three sections under `Unreleased` that describe
+   this template: "Published views move out of `vendor/`", "The entity is a
+   concrete type over the non-generic model" and "Routes need a session, and
+   the router answers the errors".
+
 ## v0.7.0
 
 The entity is a concrete type over the non-generic model, every route sits
