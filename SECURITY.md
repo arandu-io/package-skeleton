@@ -10,7 +10,7 @@ release rather than a moved tag.
 
 Report it privately, through GitHub's advisory form:
 
-<https://github.com/:author_username/:module_slug/security/advisories/new>
+<https://:module_path/security/advisories/new>
 
 Do not open a public issue and do not describe the problem in a pull request.
 A report that arrives in public is a report every reader of this repository can

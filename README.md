@@ -44,11 +44,11 @@ happens to match.
 
 | placeholder | becomes | where it appears |
 | --- | --- | --- |
-| `:module_path` | `github.com/acme/arandu-widget` | `go.mod`, the import in every test, this file, `CONTRIBUTING.md` |
+| `:module_path` | `github.com/acme/arandu-widget` | `go.mod`, the import in every test, this file, `CONTRIBUTING.md`, `SECURITY.md` |
 | `:module_slug` | `widget` | the package clause, `Name()`, every action name, the table name, `arandu.mod.toml`, this file |
 | `:package_name` | `Widget` | this file, `CHANGELOG.md`, `SECURITY.md` |
 | `:author_name` | `Acme` | `LICENSE.md`, this file |
-| `:author_username` | `acme` | `arandu.mod.toml`, `SECURITY.md`, this file |
+| `:author_username` | `acme` | `arandu.mod.toml`, this file |
 | `Skeleton` | `Widget` | the entity, its generated query, the policy and the service |
 
 The replacement runs over the contents of every file **and over the names of
