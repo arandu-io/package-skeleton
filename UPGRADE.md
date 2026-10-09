@@ -6,6 +6,19 @@
 The notes below are the release history of the package skeleton this file was
 cloned with. `configure` removes them.
 
+## v0.7.2
+
+No API or database change. Newly configured packages use Framework v0.55.1 and
+Hesape v0.52.0. A package already configured from an earlier template moves
+with
+`go get github.com/arandu-io/framework@v0.55.1 github.com/arandu-io/hesape@v0.52.0`,
+then `go mod tidy`, and raises the `framework` floor in `arandu.mod.toml` to
+`>= 0.55`. The application that installs it reads the upgrade guides of both
+modules: from Framework `v0.55` the session configuration is
+`bootstrap.Session` and a `SESSION_*` setting nothing reads stops the boot, and
+from Framework `v0.54` and Hesape `v0.52.0` so does a boolean setting that does
+not read as one.
+
 ## v0.7.1
 
 No API or database change. What changed is what the next clone starts with. A
