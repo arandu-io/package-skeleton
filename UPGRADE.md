@@ -291,6 +291,17 @@ problem documents too. Only the sign-in redirect is the same for every client.
 The notes below are the release history of the package skeleton this file was
 cloned with. `configure` removes them.
 
+## v0.7.0
+
+The entity is a concrete type over the non-generic model, every route sits
+behind `RequireAuth`, and `Config.Tenant` is gone. The last two sections under
+Unreleased at the top of this file, "The entity is a concrete type over the
+non-generic model" and "Routes need a session, and the router answers the
+errors", are the notes for a package configured from an earlier template: what
+to rewrite, what a client sees, and every one of the 154 symbols the API diff
+reports against v0.6.2. Newly configured packages use Hesape v0.50.1 and
+Framework v0.51.0.
+
 ## v0.6.2
 
 No API or database change. Newly configured packages use Framework v0.47.1 and Hesape v0.41.1. Existing applications update those requirements normally. The v0.6.1 tag remains immutable; this release supplies the versioned publication metadata it lacked.

@@ -15,6 +15,57 @@ The entries below are the release history of the package skeleton this file
 was cloned with. `configure` removes them, so a configured package starts with
 an empty changelog rather than with somebody else's.
 
+## [0.7.0] - 2026-10-09
+
+### Changed
+
+- **Breaking.** `Skeleton` embeds Hesape's non-generic `model.Model`. Its table
+  is declared once, as `skeletonTable` in `model.go`, with `ManualKey` because
+  the text primary key is written by the application, and `aru model:build`
+  generates `SkeletonQuery.go` beside it: `Skeletons(model.DB) *SkeletonQuery`,
+  `SkeletonQuery` and `SkeletonCollection`. The file is committed, and
+  `aru model:build --check` says when it is stale. The fields and methods the
+  generic model promoted onto `Skeleton` are gone; `UPGRADE.md` names all 154
+  that the API diff reports against v0.6.2.
+- **Breaking.** Every route is mounted behind `middleware.RequireAuth`. A
+  visitor with no session is sent to `/auth/login` before any handler runs, and
+  a handler reads who is asking with `ctx.User()`.
+- Handlers return what the service returned and the framework's router answers
+  it: a rejected input goes back with the messages in the flash (to a request
+  that asks for JSON, 422 `application/problem+json`), a policy refusal is 403,
+  and `ErrNotFound`, which now wraps `model.ErrModelNotFound`, is 404.
+- The rules of the entity itself live in the custom block of `model.go`, with
+  a `CanRename`/`Rename` pair as the example; the service validates, asks the
+  policy, calls those rules and saves with the Grant.
+- `configure` ends by telling the configured package to run `aru model:build`
+  once, because the generator lays out a renamed query file by the length of
+  the new name.
+- The `skeleton-package` skill carries `audience: app` under `metadata`, which
+  is what `aru skills:sync` reads to copy it into an application. `configure`
+  keeps the mark, so every package cloned from here ships its `<slug>-package`
+  skill marked and its other skills unmarked.
+- Require Hesape `v0.50.1` and Framework `v0.51.0`; `arandu.mod.toml` declares
+  `framework = ">= 0.51"`.
+
+### Removed
+
+- **Breaking.** `Config.Tenant`. It was the tenant of a guest, and with every
+  route behind `RequireAuth` nothing reads it; the zero `Config` is valid.
+
+### Added
+
+- `TestThePackageUsesTheGeneratedConcreteModel`,
+  `TestHandlersLeaveTheSubjectAndTheStatusToTheFramework` and
+  `TestTheGuidesTeachTheGeneratedModelBoundary`, and feature tests that mount
+  the module on a router with a flash: no session is a 303 to `/auth/login`, a
+  signed-in administrator meets the closed policy's 403, an empty name goes
+  back with the message in the flash, and a missing record is 404.
+
+### Fixed
+
+- `AGENTS.md` describes the generated query, where the entity's rules live,
+  and the measured counts: 7 Go files and 43 tests.
+
 ## [0.6.2] - 2026-09-17
 
 ### Fixed
