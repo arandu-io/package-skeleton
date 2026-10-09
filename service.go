@@ -7,7 +7,6 @@ import (
 	"github.com/arandu-io/framework/data"
 	"github.com/arandu-io/framework/security"
 	"github.com/arandu-io/framework/validation"
-	"github.com/arandu-io/hesape/database/model"
 )
 
 // Pagination bounds for List. A request that asks for everything gets the
@@ -88,11 +87,11 @@ func (s *SkeletonService) Create(ctx context.Context, actor security.Subject, in
 	if proposed.ID, err = data.NewID(); err != nil {
 		return nil, err
 	}
-	instance, err := Skeletons(s.db).NewInstance(nil, false)
+	instance, err := Skeletons(s.db).New()
 	if err != nil {
 		return nil, err
 	}
-	candidate := instance.Entity
+	candidate := instance
 	candidate.ID = proposed.ID
 	candidate.TenantID = data.Tenant(g)
 	candidate.Name = proposed.Name
@@ -122,7 +121,7 @@ func (s *SkeletonService) Find(ctx context.Context, actor security.Subject, id s
 		return nil, err
 	}
 
-	record, err := Skeletons(s.db).NewQuery().WhereKey(id).First(ctx, g)
+	record, err := Skeletons(s.db).WhereKey(id).First(ctx, g)
 	if err != nil {
 		return nil, err
 	}
@@ -166,18 +165,18 @@ func (s *SkeletonService) List(ctx context.Context, actor security.Subject, q da
 		limit = maxLimit
 	}
 
-	page := Skeletons(s.db).NewQuery()
+	page := Skeletons(s.db)
 	if q.Cursor != "" {
-		anchor, err := Skeletons(s.db).NewQuery().WhereKey(q.Cursor).Value(ctx, g, column)
+		anchor, err := Skeletons(s.db).WhereKey(q.Cursor).Value(ctx, g, column)
 		if err != nil {
 			return nil, err
 		}
 		if anchor == nil {
 			return nil, nil
 		}
-		page = page.Where(func(after *model.Builder[Skeleton]) {
+		page = page.Where(func(after *SkeletonQuery) {
 			after.Where(column, ">", anchor).
-				OrWhere(func(equal *model.Builder[Skeleton]) {
+				OrWhere(func(equal *SkeletonQuery) {
 					equal.Where(column, "=", anchor).Where("id", ">", q.Cursor)
 				})
 		})
