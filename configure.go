@@ -187,7 +187,11 @@ func run() error {
 
 	fmt.Println()
 	fmt.Println("done. " + selfName + " has removed itself.")
-	fmt.Println("Next: go build ./... && go test ./...")
+	// The generated query file was renamed with everything else, and it
+	// compiles as it is. The generator breaks a line by its length, though, so
+	// a name of another length is laid out differently, and `model:build
+	// --check` reports the renamed file as stale until it is written once.
+	fmt.Println("Next: aru model:build && go build ./... && go test ./...")
 	return nil
 }
 

@@ -22,7 +22,7 @@ the files and directories whose names carried a template value, formats the Go
 it touched, removes this section, and deletes itself. Then:
 
 ```bash
-go build ./... && go test ./...
+aru model:build && go build ./... && go test ./...
 ```
 
 A pipeline answers the same questions with flags:
@@ -54,9 +54,12 @@ happens to match.
 The replacement runs over the contents of every file **and over the names of
 files and directories**. `SkeletonQuery.go`, the query `aru model:build`
 generates from `model.go`, comes out as `WidgetQuery.go` holding `Widgets`,
-`WidgetQuery` and `WidgetCollection` — exactly what the generator writes for a
-`Widget` entity, so `aru model:build --check` in the configured package finds
-nothing to change. One name in this tree is read as data:
+`WidgetQuery` and `WidgetCollection` — the declarations the generator writes for
+a `Widget` entity, and it compiles as it comes out. The generator breaks a line
+by its length, so a name of another length lays one or two of them out
+differently, and `aru model:build --check` calls the renamed file stale until
+`aru model:build` has written it once; that run changes the layout and no
+declaration. One name in this tree is read as data:
 `.agents/skills/skeleton-package/SKILL.md` declares `name: skeleton-package` in
 its own frontmatter, and a tool that reads the two and finds them different
 skips the skill. Renaming the contents alone would ship a package carrying a
