@@ -51,8 +51,8 @@ installs it.
 ### The entity is a concrete type over the non-generic model
 
 Hesape `v0.47.0` removed the generic model layer, and the package now requires
-Hesape `v0.49.0` and Framework `v0.50.2`; `arandu.mod.toml` says
-`framework = ">= 0.50"`. `Skeleton` embeds `model.Model`, its table is declared
+Hesape `v0.50.1` and Framework `v0.51.0`; `arandu.mod.toml` says
+`framework = ">= 0.51"`. `Skeleton` embeds `model.Model`, its table is declared
 once as `skeletonTable` in `model.go`, and `aru model:build` generates
 `SkeletonQuery.go` beside it: `Skeletons`, `SkeletonQuery` and
 `SkeletonCollection`. The file is committed, and `aru model:build --check` exits
@@ -89,9 +89,9 @@ one value held in a variable share their clauses: start each at the constructor.
 
 To move a package already configured from this template:
 
-1. `go get github.com/arandu-io/hesape@v0.49.0 github.com/arandu-io/framework@v0.50.2`,
+1. `go get github.com/arandu-io/hesape@v0.50.1 github.com/arandu-io/framework@v0.51.0`,
    then `go mod tidy`, and raise the `framework` floor in `arandu.mod.toml` to
-   `>= 0.50`.
+   `>= 0.51`.
 2. `go run github.com/arandu-io/aru/cmd/model-upgrade@v0.60.5 --dry-run ./...`,
    then without `--dry-run`. It refuses a constructor held in a variable and
    used twice; start each query at the constructor and run it again.
