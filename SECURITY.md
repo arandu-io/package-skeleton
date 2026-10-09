@@ -30,6 +30,8 @@ particular:
 
 - a path from a handler to a Model or database handle that does not pass through
   the Service and its Policy;
+- a route reachable without `RequireAuth`, or a handler that takes who is
+  asking from anywhere but the subject the guard put on the request;
 - a Model terminal reached before `security.Authorize`;
 - a query whose tenant scope is disabled, or a tenant taken from anywhere but
   `data.Tenant(g)`;

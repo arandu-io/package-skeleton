@@ -37,6 +37,17 @@ whatever happens to be checked out beside you.
 project: no go.mod, main.go and arandu.toml together"* — it reads applications,
 and this is a library.
 
+`aru model:build` is different: it works on a module root, and it is what wrote
+`SkeletonQuery.go`. Run it after any change to the entity, and before a release
+
+```sh
+aru model:build --check
+```
+
+which writes nothing and exits 1 when the generated file is missing, stale or
+edited by hand. It needs the `aru` binary rather than the Go toolchain alone,
+which is why it sits beside the four gates and not among them.
+
 CI runs the same four. It also runs `go vet configure.go` by name while the
 template section is still in the workflow, because the build tag on that file
 keeps it out of `./...`.
@@ -118,6 +129,7 @@ has shipped.
 Before tagging:
 
 - the four gates pass with `GOWORK=off`;
+- `aru model:build --check` finds nothing to change;
 - `arandu.mod.toml` matches the code;
 - `CHANGELOG.md` has the entry, under the version, in the Keep a Changelog
   sections — `Added`, `Changed`, `Fixed`, `Removed`.
@@ -134,11 +146,13 @@ build that stops in somebody else's repository, weeks later, when they upgrade,
 with an error about a struct literal they did not write. Say what it was, what
 it is, and what they have to write instead.
 
-Run `apidiff` against the release baseline and enumerate every removal. A move
-from CRUD Repository to Model-first normally removes the Repository type,
-constructor and methods and changes Service constructors/results to database
-and entity pointers. Keeping `ErrNotFound` in `model.go` is not a removal just
-because its source file changed.
+Run `apidiff` against the release baseline and enumerate every removal; the CI
+step named `api diff against the last release` fails unless `UPGRADE.md` names
+each one. A move to a new shape of the model breaks more than its own
+signatures: `Skeletons` changing what it returns is one line, and every method
+the old embedded model promoted on `*Skeleton` that the new one does not is
+another, each named on its own. Keeping `ErrNotFound` in `model.go` is not a
+removal just because its value changed.
 
 Three changes break an installer without touching a signature, and each one is
 worth a line in the changelog:
@@ -156,6 +170,6 @@ worth a line in the changelog:
 Not in an issue and not in a pull request. `SECURITY.md` has the private
 advisory address. Anything that lets a caller reach data a policy did not
 authorize is in scope — a handler that reaches a Model or database directly, a
-Model terminal before `Authorize`, disabled tenant scope, a `Grant` produced
-without a Policy returning nil, or a field reaching a response that `Resource`
-does not list.
+route outside `RequireAuth`, a Model terminal before `Authorize`, disabled
+tenant scope, a `Grant` produced without a Policy returning nil, or a field
+reaching a response that `Resource` does not list.

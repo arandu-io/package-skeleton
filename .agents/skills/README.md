@@ -48,15 +48,19 @@ knows, and the repository name is not.
 ## Why these exist
 
 The audience of the first three is somebody changing the package. The common
-failure modes are a provider, a container lookup, a CRUD Repository beside the
-Model, a tenant read from the URL, or a Policy branch that returns nil for
-administrators "for now". None belongs here, and the last three are security
-failures rather than style disagreements.
+failure modes are a provider, a container lookup, a hand edit to the generated
+`SkeletonQuery.go`, a rule of the entity written into the Service instead of the
+custom block of `model.go`, a handler that loads the session or maps an error to
+a status itself, a CRUD Repository beside the Model, a tenant read from the URL,
+or a Policy branch that returns nil for administrators "for now". None belongs
+here, and the last three are security failures rather than style disagreements.
 
 The package is built to be checked rather than trusted. Its denial tests use a
-nil database, so reaching even the configured Model before authorization
-panics. The structural twin reads every exported Service method and checks the
-same order on the allowed path. Running `go test -race ./...` exercises both.
+nil database, so reaching even the generated query constructor before
+authorization panics. The structural twin reads every exported Service method
+and checks the same order on the allowed path, and reads every handler for the
+subject and the status it must leave to the framework. Running
+`go test -race ./...` exercises all of it.
 
 ## Adding your own
 

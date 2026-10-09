@@ -1,6 +1,6 @@
 ---
 name: skeleton-module
-description: Change what this Arandu package registers — its routes, handlers, configuration, response shape or schema. Use when the request is to "add a route", "add an endpoint", "add a handler", "add a config option", "change the prefix", "add a field to the response", "add a column", "write a migration", "return the tenant id too", "add a background job to the package", "make it run something at boot", or when a change touches module.go, config.go or model.go. Covers foundation.Module and the five optional interfaces beside it, why handlers are thin, the migration name that carries the order, and what Resource is for.
+description: Change what this Arandu package registers — its routes, handlers, configuration, response shape or schema. Use when the request is to "add a route", "add an endpoint", "add a handler", "add a config option", "change the prefix", "add a field to the response", "add a column", "write a migration", "return the tenant id too", "add a background job to the package", "make it run something at boot", "add a scope", "add a rule to the entity", "regenerate the query", "who is the current user in a handler", "return 404", or when a change touches module.go, config.go, model.go or SkeletonQuery.go. Covers foundation.Module and the five optional interfaces beside it, why handlers are thin, the RequireAuth guard and ctx.User, returning errors for the router to answer, the generated query and aru model:build, where the rules of the entity live, the migration name that carries the order, and what Resource is for.
 license: MIT
 ---
 
@@ -56,24 +56,45 @@ application's own tree and never opens an installed package.
 	r.Action(stdhttp.MethodDelete, m.cfg.Prefix+"/{id}", m.destroy).Name("skeleton.destroy")
 ```
 
+Below the line that is already there, and nowhere above it:
+
+```go
+	r = r.Group("", middleware.RequireAuth(m.sessions))
+```
+
+That line replaces `r` with the guarded group before the first registration, so
+a route added below it needs a session like every other, and there is no
+unguarded router left in scope to add one to by mistake.
+`TestHandlersLeaveTheSubjectAndTheStatusToTheFramework` fails if a route is
+registered before the guard is mounted.
+
 The name is what a URL is built from. Two spellings of one address disagree, and
 the failure when they do is a link to a 404. The prefix is `m.cfg.Prefix` and
 never a literal: the application decides where the package is mounted, and
 `TestTheModuleRegistersItsRoutesUnderItsPrefix` at
-`tests/Feature/routes_test.go:94` mounts it at `/widgets` and fails if any route
-came out anywhere else. It also asserts every route is tagged with the module
-name, which is what `aru route:list` groups by.
+`tests/Feature/routes_test.go:210` mounts it at `/widgets` and fails if any
+route came out anywhere else, or if `everyRoute` does not reach it. It also
+asserts every route is tagged with the module name, which is what
+`aru route:list` groups by.
 
-**2. Write the handler thin.** Read the input, ask the service, answer:
+**2. Write the handler thin.** Read the input and who is asking, ask the
+service, answer:
 
 ```go
 func (m *Module) destroy(ctx *fhttp.Context) error {
-	if err := m.svc.Delete(ctx.Ctx(), m.subject(ctx.Request), ctx.Param("id")); err != nil {
-		return m.answer(ctx, err)
+	who, _ := ctx.User()
+	if err := m.svc.Delete(ctx.Ctx(), who, ctx.Param("id")); err != nil {
+		return err
 	}
 	return ctx.Status(stdhttp.StatusNoContent)
 }
 ```
+
+`ctx.User()` reads the subject `RequireAuth` put on the request. Nothing in the
+module loads the session again, and no handler takes an identity from the input.
+The second value it answers is not consulted: behind the guard there is always a
+subject, and the zero one it would answer otherwise is refused by
+`security.Authorize` before any policy runs.
 
 `ctx.Status` and not `ctx.JSON` for an empty answer: `JSON` calls `ToArray()` on
 what it is handed, so a nil resource panics inside the framework rather than
@@ -83,65 +104,133 @@ No rule and no Model construction lives in a handler. A handler that held the
 database or called `Skeletons` would bypass the only place the Policy is
 guaranteed to run. Read `skeleton-policy` before writing the Service method.
 
-**3. Return the refusal; the router translates it.** The framework's action
-adapter answers an error itself: `validation.Errors` becomes 422 with the
-rejected field names, which are the client's own and give nothing away;
-`security.ErrForbidden` becomes 403; `model.ErrModelNotFound` and
-`database.ErrRecordNotFound` become 404; `security.ErrCSRF` becomes 419; and an
-error with an `HTTPStatus() int` method answers that status — through the same
-refusal path the route guards use, so the error's own text never reaches the
-person. A hand-written mapping like `answer` repeats that table and is
-redundant; what it still has to cover is a sentinel of the module's own, such
-as `ErrNotFound`, which the adapter only recognises once it wraps
-`model.ErrModelNotFound` or carries `HTTPStatus()`. Anything unclaimed is
-*returned*, not swallowed — the framework turns it into the error page in
-development and a 500 in production, which is the honest outcome. Answering
-200 with an empty body is the failure nobody debugs.
+**3. Return the error; the router answers it.** The handler writes `return err`
+and nothing else with what the service returned. The framework's action adapter
+answers it, in one place, through the same refusal path the route guards use:
 
-**4. Add the case to the route test.** `TestAVisitorWithNoSessionReachesNothing`
-at `tests/Feature/routes_test.go:59` is a table of every route, and it asserts
-403 for each. It runs against `data.Wrap(nil, data.DialectSQLite)` — a handle
-over no database — so a route that got past the policy panics rather than
-passes.
+| the service returned | the router answers |
+| --- | --- |
+| `validation.Errors` | 303 back where the request came from, with the messages and what was typed in the flash |
+| `ErrNotFound`, or any `model.ErrModelNotFound` | 404 |
+| `security.ErrForbidden`, which a policy refusal is | 403 |
+| `security.ErrCSRF` | 419 |
+| `database.ErrUniqueViolation` | 409 |
+| an error with an `HTTPStatus() int` method | that status |
+| anything else | the error page in development, 500 in production |
+
+The answer is the status and its standard sentence, never the error's own text:
+telling a client why a policy said no tells it what exists, one request at a
+time, and the reason is in the log, where the person operating the system reads
+it and the person probing it does not.
+
+`ErrNotFound` is a 404 because it wraps `model.ErrModelNotFound`;
+`TestTheMissingRecordIsTheModelsNotFound` holds that. A failure of the module's
+own that should answer some other status is an error type with an
+`HTTPStatus() int` method, never a `switch` in the handler.
+`TestHandlersLeaveTheSubjectAndTheStatusToTheFramework` fails on a handler that
+calls `errors.Is` or `errors.As`, `fhttp.Refuse`, `fhttp.Reject` or
+`http.Error`.
+
+**4. Add the case to the route tests.** `everyRoute` at
+`tests/Feature/routes_test.go:118` is a table of every route.
+`TestAVisitorWithNoSessionIsSentToSignIn` asserts each one sends a request with
+no session to `/auth/login`, and `TestASignedInSubjectReachesThePolicyAndIsRefused`
+asserts each one answers a signed-in administrator 403 from the closed policy.
+Both run against `data.Wrap(nil, data.DialectSQLite)` — a handle over no
+database — so a route that got past the policy panics rather than passes.
 
 ## Where the subject comes from
 
-`m.subject(r)` loads the session and returns `security.Guest(m.cfg.Tenant)` when
-there is none. Nothing else reads who is acting, and no handler takes a user id
-from the request. Behind `RequireAuth` (or `LoadSubject` on a public route) the
-guard has already loaded the subject and put it on the request context, so a
-handler there reads it with `ctx.User()` instead of loading the session a second
-time. Only the subject travels on the context; the Grant is still issued by the
-Policy, per call.
+`RequireAuth`, mounted once at the top of `Routes`, loads the session. A request
+with none is sent to the sign-in screen and never reaches a handler; a request
+with one carries its subject on the context, and the handler reads it with
+`who, _ := ctx.User()`. Only the subject travels on the context; the Grant is
+still issued by the Policy, per call.
 
-The guest's tenant is the one place in this package where a tenant does not come
-from a Grant, and it is because there is no Grant yet. It comes from
-`Config.Tenant`, which is the application's own configuration — never from the
-request.
+There is no guest on these routes and no tenant in `Config`: the tenant of every
+statement is the one on the Grant, which came from the session of whoever is
+signed in. A public route that wants to know who is looking without requiring a
+session mounts `middleware.LoadSubject` instead, and a reader the package means
+to serve without any session is a `security.Guest` the code declares on purpose
+— open it in the policy first, as `skeleton-policy` says.
 
 ## Changing the Model
 
-`Skeleton` embeds `model.Model[Skeleton]`, and `Skeletons(db)` is the one
-configured entry point for the table. Keep the application-generated key
-settings and tenant default visible there:
+`Skeleton` embeds `model.Model`, and `skeletonTable` declares its table once,
+beside it in `model.go`. Keep the application-generated key and the tenant
+default visible there:
 
 ```go
-func Skeletons(db *data.DB) *model.Model[Skeleton] {
-	m := model.NewModel[Skeleton]("skeletons", db, db.GetQueryGrammar(), db.GetPostProcessor())
-	m.KeyType = "string"
-	m.Incrementing = false
-	return m
+var skeletonTable = model.NewTable(model.TableSpec{
+	Name:      "skeletons",
+	New:       func() model.Entity { return new(Skeleton) },
+	ManualKey: true,
+})
+```
+
+`ManualKey` because the key is text the service writes from `data.NewID()`: the
+database neither increments it nor fills it. Do not set `Global: true`: this
+package owns tenant data. Model terminals require a Grant and apply `tenant_id`;
+the Service still calls `security.Authorize` first because the Model does not
+decide which Policy action the Grant represents.
+
+`SkeletonQuery.go` is generated from that declaration: `Skeletons(db)`, the
+`*SkeletonQuery` it returns, and `SkeletonCollection`. It is never edited by
+hand. After changing the struct or the table, run
+
+```sh
+aru model:build
+```
+
+and commit what it rewrote. `aru model:build --check` writes nothing and exits 1
+when the file is missing, stale or hand-edited.
+
+Every query starts at `Skeletons(s.db)`. The constructor returns one mutable
+query, so a second chain begun from a value held in a variable carries the
+clauses of the first — and compiles.
+
+Keep rows as pointers after `New`, `First`, `Find` or `Get`. A copy keeps the
+model of the row it was taken from, and the model refuses to write through it
+with `model.ErrUnwired`. For the same reason a row from `New()` is filled field
+by field: assigning a whole struct over it replaces its model with the unwired
+one of the literal.
+
+The rules of the entity itself go in the custom block of `model.go`: an
+invariant, a derived value, a transition that changes only the fields of the
+row, written as a pure method — no database, no network, no clock read inside,
+no Grant; a time it stamps arrives as a parameter. A guard and the transition it
+protects come as a pair:
+
+```go
+// arandu:begin custom
+
+// CanRename reports whether the record may take this name.
+func (s Skeleton) CanRename(name string) bool { return name != "" && name != s.Name }
+
+// Rename gives the record a new name, and refuses one it cannot take.
+func (s *Skeleton) Rename(name string) error {
+	if !s.CanRename(name) {
+		return fmt.Errorf("skeleton: %q cannot be the new name of this record", name)
+	}
+	s.Name = name
+	return nil
+}
+
+// arandu:end custom
+```
+
+A local scope is a method on `*SkeletonQuery` in the same block, and a relation
+is registered on `skeletonTable` from an `init` function:
+
+```go
+// Named narrows the query to the records with this name.
+func (q *SkeletonQuery) Named(name string) *SkeletonQuery {
+	return q.Where("name", "=", name)
 }
 ```
 
-Do not set `TenantColumn` to `""`: this package owns tenant data. Model
-terminals require a Grant and apply `tenant_id`; the Service still calls
-`security.Authorize` first because the Model does not decide which Policy
-action the Grant represents.
-
-Keep rows as pointers after `NewInstance`, `First`, `Find`, or `Get`. The
-embedded Model's `Entity` points into that allocation, so copying the row and
-then calling a promoted terminal would act on the original.
+The Service orchestrates around them: it validates the request, asks the Policy
+for the Grant, calls the rule, and saves with that Grant.
 
 This table declares `created_at` but not `updated_at`. The Hesape Model stamps a
 timestamp only when the entity declares its column, so creation remains correct
@@ -170,17 +259,17 @@ did not get is worse than a number somebody wrote and was told about — that is
 why `PageSize` above `MaxPageSize` is an error and not a silent 200.
 
 Add the case to `TestTheConfigurationRefusesWhatCannotWork` at
-`tests/Unit/policy_test.go:192`, which is a map of named bad configurations, and
-to `TestNewRefusesAWiringThatCannotWork` at `tests/Feature/routes_test.go:119`
+`tests/Unit/policy_test.go:298`, which is a map of named bad configurations, and
+to `TestNewRefusesAWiringThatCannotWork` at `tests/Feature/routes_test.go:267`
 if the field can make `New` fail.
 
 ## What may leave in a response
 
 `Resource` and `Collection` in `model.go` are declared snapshots, not direct
 encoding of the entity. This also defines the safe copy boundary: Model-backed
-Service results stay as `*Skeleton`/`[]*Skeleton`, because copying an embedded
-Model preserves a back-pointer to the original allocation. A response snapshot
-reads only the explicit fields and cannot be saved.
+Service results stay as `*Skeleton`/`[]*Skeleton`, because a copied row keeps
+the model of the original and refuses to be written. A response snapshot reads
+only the explicit fields and cannot be saved.
 
 An encoder handed the entity would answer with whatever fields it happens to
 have, including the embedded Model and anything added later without opening the
@@ -218,7 +307,7 @@ func (createSkeletons) GetName() string { return "20260823_0001_create_skeletons
 ```
 
 **The name carries the order and nothing else does.** `TestTheModuleDeclaresItsSchema`
-at `tests/Feature/routes_test.go:140` requires the returned names to be sorted,
+at `tests/Feature/routes_test.go:301` requires the returned names to be sorted,
 requires none to be empty, and requires every one to satisfy
 `migrations.ReversibleMigration` — the migrator finds `Down` by type assertion,
 so a `Down` with the wrong signature is a rollback that silently does nothing.

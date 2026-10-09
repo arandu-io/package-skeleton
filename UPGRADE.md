@@ -48,6 +48,245 @@ reserved name, so a package that has not moved fails its own tests with a
 message naming both rules, rather than failing in the first project that
 installs it.
 
+### The entity is a concrete type over the non-generic model
+
+Hesape `v0.47.0` removed the generic model layer, and the package now requires
+Hesape `v0.49.0` and Framework `v0.50.2`; `arandu.mod.toml` says
+`framework = ">= 0.50"`. `Skeleton` embeds `model.Model`, its table is declared
+once as `skeletonTable` in `model.go`, and `aru model:build` generates
+`SkeletonQuery.go` beside it: `Skeletons`, `SkeletonQuery` and
+`SkeletonCollection`. The file is committed, and `aru model:build --check` exits
+1 when it is stale.
+
+An application that uses the package through `New`, its routes and
+`SkeletonService` changes nothing for this section: every service method keeps
+its signature. What breaks is code that reached the table through `Skeletons`:
+
+| before | now |
+|---|---|
+| `func Skeletons(*data.DB) *model.Model[Skeleton]` | `func Skeletons(model.DB) *SkeletonQuery`; a `*data.DB` is a `model.DB`, so the call compiles unchanged |
+| `Skeletons(db).NewQuery().Where(…)` | `Skeletons(db).Where(…)` |
+| `Skeletons(db).NewInstance(nil, false)`, then `.Entity` | `Skeletons(db).New()`, which returns the `*Skeleton` |
+| `func(*model.Builder[Skeleton])` in a grouped where | `func(*SkeletonQuery)` |
+| `record.Exists`, a field | `record.Exists()` |
+| `record.Table`, a field | `record.Table()`, the `*model.Table` |
+| the configuration the generic model carried as fields of `Skeleton` -- `ConnectionName`, `CreatedAtColumn`, `DeletedAtColumn`, `Entity`, `Grammar`, `Incrementing`, `KeyType`, `NamedScopes`, `PerPage`, `PrimaryKey`, `Processor`, `RelationResolvers`, `SoftDeletes`, `TenantColumn`, `Timestamps`, `UpdatedAtColumn`, `WasRecentlyCreated` | gone; the table settings live in `skeletonTable`, and a row keeps `Save`, `Delete`, `Fresh`, `Replicate`, `Exists`, `Table`, `WasRecentlyCreated()` and the attribute methods of `model.Model` |
+
+Every one of those is `Skeleton.<field>` in the API diff: `Skeleton.ConnectionName`,
+`Skeleton.CreatedAtColumn`, `Skeleton.DeletedAtColumn`, `Skeleton.Entity`,
+`Skeleton.Exists`, `Skeleton.Grammar`, `Skeleton.Incrementing`,
+`Skeleton.KeyType`, `Skeleton.NamedScopes`, `Skeleton.PerPage`,
+`Skeleton.PrimaryKey`, `Skeleton.Processor`, `Skeleton.RelationResolvers`,
+`Skeleton.SoftDeletes`, `Skeleton.Table`, `Skeleton.TenantColumn`,
+`Skeleton.Timestamps`, `Skeleton.UpdatedAtColumn` and
+`Skeleton.WasRecentlyCreated`.
+
+**What changes without a compiler error.** A value copy of a `Skeleton` cannot
+be saved: the write is refused with `model.ErrUnwired`, where before it acted on
+the row the copy was taken from. And `Skeletons(db)` is now one mutable query
+rather than a model that opened a new one per chain, so two queries begun from
+one value held in a variable share their clauses: start each at the constructor.
+
+To move a package already configured from this template:
+
+1. `go get github.com/arandu-io/hesape@v0.49.0 github.com/arandu-io/framework@v0.50.2`,
+   then `go mod tidy`, and raise the `framework` floor in `arandu.mod.toml` to
+   `>= 0.50`.
+2. `go run github.com/arandu-io/aru/cmd/model-upgrade@v0.60.5 --dry-run ./...`,
+   then without `--dry-run`. It refuses a constructor held in a variable and
+   used twice; start each query at the constructor and run it again.
+3. `go run github.com/arandu-io/aru@v0.60.5 model:build`, and commit the
+   generated `SkeletonQuery.go`.
+4. Let the compiler name what is left; tests that read the model's settings
+   observe what the table compiles instead.
+
+<details>
+<summary>Every method the generic model promoted on <code>*Skeleton</code> that the non-generic one does not, as the API diff names them</summary>
+
+The five whose signature changed rather than disappeared:
+
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).Is`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).MakeHidden`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).MakeVisible`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).SetRelation`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).SyncOriginal`
+
+The rest are gone from the method set of `*Skeleton`:
+
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).AddGlobalScope, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).All, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).Append, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).AttributesToArray, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).CallNamedScope, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).Create, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).Destroy, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).DiscardChanges, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).Except, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).Find, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).FindMany, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).FindOrFail, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).FindOrNew, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).First, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).FirstOrCreate, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).FirstOrNew, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).ForceCreate, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).ForceDeleteQuietly, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).ForceDeleted, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).ForceDeleting, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).ForceDestroy, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).FreshTimestamp, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).GetAppends, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).GetConnectionName, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).GetCreatedAtColumn, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).GetDeletedAtColumn, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).GetForeignKey, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).GetGlobalScopes, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).GetHidden, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).GetIncrementing, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).GetKeyName, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).GetKeyType, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).GetMorphClass, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).GetPerPage, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).GetPrevious, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).GetQualifiedCreatedAtColumn, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).GetQualifiedDeletedAtColumn, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).GetQualifiedKeyName, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).GetQualifiedUpdatedAtColumn, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).GetQueueableConnection, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).GetQueueableID, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).GetQueueableRelations, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).GetRawOriginal, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).GetRelation, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).GetRelations, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).GetRouteKey, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).GetRouteKeyName, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).GetTable, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).GetTouchedRelations, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).GetUpdatedAtColumn, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).GetVisible, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).HasAppended, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).HasGlobalScope, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).HasNamedScope, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).IsForceDeleting, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).IsIgnoringTouch, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).IsNot, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).IsRelation, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).IsSoftDeletable, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).LoadAggregate, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).LoadMorph, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).LoadMorphAggregate, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).LoadMorphAvg, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).LoadMorphCount, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).LoadMorphMax, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).LoadMorphMin, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).LoadMorphSum, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).NewBaseQueryBuilder, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).NewCollection, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).NewFromBuilder, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).NewInstance, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).NewModelQuery, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).NewQuery, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).NewQueryForRestoration, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).NewQueryWithoutRelationships, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).NewQueryWithoutScope, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).NewQueryWithoutScopes, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).NewTypedBuilder, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).On, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).OnWriteConnection, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).Only, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).OnlyTrashed, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).OriginalIsEquivalent, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).PushQuietly, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).QualifyColumn, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).QualifyColumns, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).Query, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).Ref, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).RegisterGlobalScopes, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).RegisterModelEvent, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).ReplicateQuietly, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).ResolveRouteBinding, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).ResolveRouteBindingQuery, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).ResolveSoftDeletableRouteBinding, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).RestoreQuietly, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).Restored, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).Restoring, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).SetAppends, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).SetConnection, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).SetHidden, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).SetIncrementing, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).SetKeyName, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).SetKeyType, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).SetPerPage, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).SetRelations, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).SetTable, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).SetTouchedRelations, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).SetVisible, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).SoftDeleted, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).SyncChanges, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).SyncOriginalAttribute, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).SyncOriginalAttributes, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).ToPrettyJSON, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).Touches, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).UnsetAttribute, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).UnsetRelation, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).UnsetRelations, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).UpdateOrCreate, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).UpdateOrFail, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).UpdateQuietly, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).UpdateTimestamps, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).UsesTimestamps, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).Where, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).WhereKey, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).With, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).WithTrashed, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).WithoutRelations, method set of *Skeleton`
+- `github.com/arandu-io/hesape/database/model.(*Model[github.com/arandu-io/package-skeleton.Skeleton]).WithoutTimestamps, method set of *Skeleton`
+
+</details>
+
+### Routes need a session, and the router answers the errors
+
+Every route is registered behind `RequireAuth`, and each handler reads who is
+asking with `ctx.User()` and returns what the service returned. The module no
+longer loads the session itself, reads no guest, and maps no error to a status.
+
+`Config.Tenant` was removed. It was the tenant a visitor with no session was
+read as, and with every route behind the guard there is no such visitor:
+
+```go
+// Before.
+skeleton.New(skeleton.Config{Tenant: cfg.Auth.Tenant}, db, sessions)
+
+// After.
+skeleton.New(skeleton.Config{}, db, sessions)
+```
+
+What a client sees changes with it, and none of it is a compiler error:
+
+| request | before | now |
+|---|---|---|
+| no session | 403, after the policy refused a guest | 303 to `/auth/login`, before any handler runs |
+| input rejected | 422, with the field names in the body | 303 back to the referring page, with the messages and what was typed in the flash |
+| policy refused | 403 `forbidden` | 403 `Forbidden`, the standard sentence |
+| no such record | 404 `not found` | 404 `Not Found` |
+
+`ErrNotFound` now wraps `model.ErrModelNotFound`, which is what makes the router
+answer it with 404. `errors.Is(err, ErrNotFound)` still holds; its text is
+longer.
+
+To move a package already configured from this template: replace each
+handler's `m.subject(ctx.Request)` with `who, _ := ctx.User()` and each
+`return m.answer(ctx, err)` with `return err`; delete `subject` and `answer`;
+open `Routes` with `r = r.Group("", middleware.RequireAuth(m.sessions))`; make
+`ErrNotFound` wrap `model.ErrModelNotFound`; and remove `Tenant` from `Config`
+and from the wiring in `bootstrap/app.go`.
+
+A client that cannot follow a redirect no longer reads the rejected field names
+from the body. A module that has to answer such a client 422 returns an error
+type of its own with an `HTTPStatus() int` method, which the router answers with
+that status and its standard sentence -- still without the field names, which go
+to the flash or nowhere.
+
 <!-- configure:template-start -->
 The notes below are the release history of the package skeleton this file was
 cloned with. `configure` removes them.

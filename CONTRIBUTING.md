@@ -18,6 +18,11 @@ The two filters on `gofmt` are not preference. `gofmt` is the only tool in the
 chain that ignores build tags, so it reads files the compiler deliberately
 excludes; `testdata/` holds fixtures that are invalid on purpose.
 
+A change to the entity in `model.go` is followed by `aru model:build`, which
+rewrites `SkeletonQuery.go`, and the regenerated file goes in the same commit.
+`aru model:build --check` exits 1 when the committed file is missing, stale or
+edited by hand.
+
 ## What a change has to keep true
 
 Four properties are the reason this package is what it is. A change that breaks
@@ -33,13 +38,26 @@ one of them will not be merged, whatever else it improves.
 4. **`arandu.mod.toml` matches the code.** Adding an outbound call, a file
    write or a process means declaring it there in the same commit.
 
-CRUD stays on `Skeletons(db)` and its Builder. Add a Repository only for a
-specialized complex query, read model, report, export or raw SQL contract; a
+CRUD stays on `Skeletons(db)` and its generated query. Add a Repository only for
+a specialized complex query, read model, report, export or raw SQL contract; a
 wrapper around `Find`, `Get`, `Save` or `Delete` is a second data path.
 
-Model-backed entities stay pointers. Copying `Skeleton` also copies an embedded
-Model whose `Entity` still points to the original allocation. Response
-resources are the deliberate snapshot boundary; Service results are not.
+Every query starts at `Skeletons(s.db)`. The constructor returns one mutable
+query, so a second chain begun from a value held in a variable carries the
+clauses of the first -- and that compiles.
+
+Model-backed entities stay pointers. A copy of `Skeleton` keeps the model of the
+row it was copied from, and the model refuses to write through the copy with
+`model.ErrUnwired`. Response resources are the deliberate snapshot boundary;
+Service results are not.
+
+The rules of the entity itself go in the custom block of `model.go`, as pure
+methods. The Service orchestrates, and holds no rule the entity could hold.
+
+Handlers read who is asking with `ctx.User()`, which `RequireAuth` filled, and
+return the error the Service returned for the router to answer. A handler that
+loads the session or maps an error to a status fails
+`TestHandlersLeaveTheSubjectAndTheStatusToTheFramework`.
 
 ## Style
 

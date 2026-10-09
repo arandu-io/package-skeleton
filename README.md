@@ -49,10 +49,14 @@ happens to match.
 | `:package_name` | `Widget` | this file, `CHANGELOG.md`, `SECURITY.md` |
 | `:author_name` | `Acme` | `LICENSE.md`, this file |
 | `:author_username` | `acme` | `arandu.mod.toml`, `SECURITY.md`, this file |
-| `Skeleton` | `Widget` | the entity, the policy, the service and the configured Model entry point |
+| `Skeleton` | `Widget` | the entity, its generated query, the policy and the service |
 
 The replacement runs over the contents of every file **and over the names of
-files and directories**. One name in this tree is read as data:
+files and directories**. `SkeletonQuery.go`, the query `aru model:build`
+generates from `model.go`, comes out as `WidgetQuery.go` holding `Widgets`,
+`WidgetQuery` and `WidgetCollection` — exactly what the generator writes for a
+`Widget` entity, so `aru model:build --check` in the configured package finds
+nothing to change. One name in this tree is read as data:
 `.agents/skills/skeleton-package/SKILL.md` declares `name: skeleton-package` in
 its own frontmatter, and a tool that reads the two and finds them different
 skips the skill. Renaming the contents alone would ship a package carrying a
@@ -77,6 +81,11 @@ go test -race ./...
 CI runs them twice: once on the template, and once on a clean clone that has
 been configured. A skeleton that passes before configuring and breaks after is
 worse than none.
+
+`SkeletonQuery.go` is generated, so a change to the entity in `model.go` is
+followed by `aru model:build`, and `aru model:build --check` exits 1 when the
+committed file is missing, stale or edited by hand. It needs the `aru` binary,
+which is why it sits beside the four gates rather than among them.
 
 ## One thing that is only true before you configure
 
@@ -119,9 +128,7 @@ The construction, in `Build`, after the session store exists and before
 `k.Register`:
 
 ```go
-	:module_slugModule, err := :module_slug.New(:module_slug.Config{
-		Tenant: cfg.Auth.Tenant,
-	}, db, sessions)
+	:module_slugModule, err := :module_slug.New(:module_slug.Config{}, db, sessions)
 	if err != nil {
 		return App{}, err
 	}
@@ -189,9 +196,12 @@ boot rather than answering the first request that reaches one of them with a
 
 | field | required | meaning |
 | --- | --- | --- |
-| `Tenant` | yes | the customer a visitor with no session is read as. From the application's configuration, never from the request. |
 | `Prefix` | no | where the routes are mounted. Defaults to `/:module_slug`. |
 | `PageSize` | no | how many records one page answers with. Defaults to 25, refused above 200. |
+
+The zero `Config{}` is a valid configuration. There is no tenant to set: every
+route needs a session, and the tenant of every statement is the one on the
+Grant of whoever is signed in.
 
 `New` returns an error rather than starting half-wired, so a setting that
 cannot work fails where it is written instead of on the first request that
@@ -205,8 +215,15 @@ needed it.
 | `GET` | `/:module_slug/{id}` | `:module_slug.show` |
 | `POST` | `/:module_slug` | `:module_slug.store` |
 
-Every one of them is refused until the policy is opened. That is the state the
-package ships in, and it is deliberate.
+Every one of them sits behind `RequireAuth`: a visitor with no session is sent
+to `/auth/login`, and the handler of a request that has one reads who is asking
+with `ctx.User()`. Behind the guard, every route is refused until the policy is
+opened. That is the state the package ships in, and it is deliberate.
+
+A handler returns the error the service returned, and the router answers it: a
+policy refusal is 403, a record that is not there is 404, and a rejected input
+goes back where it came from with the messages in the flash. No handler maps an
+error to a status itself.
 
 ## Open the policy
 
@@ -223,35 +240,49 @@ this package needs, one action at a time, inside the custom block:
 
 What is not written there stays closed, including every action added later.
 
-## Model-first data path
+## The data path
 
-`Skeleton` embeds `model.Model[Skeleton]`, and `Skeletons(db)` is the one
-configured entry point for its table. `SkeletonService` owns `*data.DB` and
-follows `validate -> security.Authorize -> Grant -> Model terminal`; handlers
-never hold the database or construct a Model.
+`Skeleton` embeds `model.Model`, and `skeletonTable`, beside it in `model.go`,
+declares its table once. `aru model:build` generates `SkeletonQuery.go` from
+it: `Skeletons(db)`, which starts a `*SkeletonQuery`, and `SkeletonCollection`.
+The file is committed and never edited by hand; regenerate it after changing
+the entity, and `aru model:build --check` fails when it is out of date.
 
-Create writes `TenantID` from `data.Tenant(g)`. Find authorizes before reading
-and again against the row it found. List authorizes before building its scoped,
-allowlisted query. The Model keeps its default `tenant_id` scope on every
-terminal.
+`SkeletonService` owns `*data.DB` and follows
+`validate -> security.Authorize -> Grant -> Model terminal`; handlers never hold
+the database or start a query. Every query starts at `Skeletons(s.db)`: the
+constructor returns one mutable query, so a second chain begun from a value held
+in a variable would carry the clauses of the first.
 
-Terminals return `*Skeleton` and `[]*Skeleton`. Keep those pointers intact:
-copying an embedded Model leaves its `Entity` pointer aimed at the original
-allocation. `Resource` and `Collection` are explicit response snapshots and do
-not expose tenant or Model internals.
+Create builds the row with `Skeletons(s.db).New()` and writes `TenantID` from
+`data.Tenant(g)`. Find authorizes before reading and again against the row it
+found. List authorizes before building its scoped, allowlisted query. The table
+keeps its default `tenant_id` scope on every terminal.
+
+Terminals return `*Skeleton` and `[]*Skeleton`. Keep those pointers: a copy of a
+row keeps the model of the original, and the model refuses to write through it
+with `model.ErrUnwired`. `Resource` and `Collection` are explicit response
+snapshots and do not expose tenant or Model internals.
+
+The rules of the entity itself — an invariant, a derived value, a transition
+such as `Rename` guarded by `CanRename` — go in the custom block of `model.go`,
+as pure methods: no database, no network, no clock read inside, no Grant. The
+service orchestrates: it validates, authorizes, calls those rules and saves
+with the Grant.
 
 There is no CRUD Repository. Add one only for a complex query, read model,
-report, export or raw SQL contract that the common Model path cannot express.
+report, export or raw SQL contract that the generated query cannot express.
 
 ## Layout
 
 ```
-module.go      registration, routes, handlers and migrations
-config.go      what the application passes in
-model.go       the entity, and what it may answer with
-policy.go      who may do what
-service.go     the rules and authorized Model access
-views.go       the files the application takes ownership of
+module.go         registration, routes, handlers and migrations
+config.go         what the application passes in
+model.go          the entity, its table and its own rules, and what it may answer with
+SkeletonQuery.go  the query aru model:build generates from model.go
+policy.go         who may do what
+service.go        the use cases, and Model access after authorization
+views.go          the files the application takes ownership of
 ```
 
 ## What is already correct, and has to stay that way
@@ -267,6 +298,9 @@ preceding Policy call decides whether the action itself is allowed.
 **The tenant comes from `data.Tenant(g)`.** Never from the path, the body, the
 query string or a header. The value on the Grant came from the session; a value
 that arrived with the request is a value the caller chose.
+
+**Who is asking comes from the guard.** `RequireAuth` loads the session once and
+puts the subject on the request; nothing in the module loads it again.
 
 **`arandu.mod.toml` declares what the package does** — network, filesystem,
 exec, migrations — and the suite compares the declaration against what the code
@@ -284,7 +318,10 @@ go test -race ./...
 
 The denial suite constructs the Service with a nil database, so even building
 `Skeletons(nil)` would panic. The structural twin reads the allowed path and
-rejects any Service method that reaches the Model before `Authorize`.
+rejects any Service method that reaches the Model before `Authorize`, and any
+handler that loads the session or picks a status itself. The route tests drive
+the module with no session, with a signed-in subject and with a rejected input,
+on that same handle over no database.
 
 ## Licence
 

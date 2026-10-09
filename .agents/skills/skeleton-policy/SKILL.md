@@ -60,14 +60,16 @@ rule written outside the pair is the rule that disappears.
 What is not written inside the block stays closed, including every action added
 later. The function ends in a refusal and there is no other exit.
 
-**2. Say something about guests, or do not.** `security.Guest(tenant)` is the
-subject a visitor with no readable session gets, and it is the only subject that
-arrives with an empty `ID` and is still authorized at all. The zero `Subject` —
-an empty `ID` with no guest marker — is refused by `Authorize` before `Can` is
-consulted, because it is almost always a session that failed to load, and a
-policy asked about nobody answers about nobody.
-`TestAuthorizeRefusesASubjectThatIsNobody` at `tests/Unit/policy_test.go:91`
-holds that apart from the guest case, and `TestThePolicyDeniesAGuest:79` proves
+**2. Say something about guests, or do not.** The routes of this package sit
+behind `RequireAuth`, so a visitor with no session is sent to the sign-in screen
+and never reaches the policy. A guest arrives only when an application calls the
+service with `security.Guest(tenant)` from a public route of its own: the only
+subject that arrives with an empty `ID` and is still authorized at all. The zero
+`Subject` — an empty `ID` with no guest marker — is refused by `Authorize`
+before `Can` is consulted, because it is almost always a session that failed to
+load, and a policy asked about nobody answers about nobody.
+`TestAuthorizeRefusesASubjectThatIsNobody` at `tests/Unit/policy_test.go:94`
+holds that apart from the guest case, and `TestThePolicyDeniesAGuest:82` proves
 a guest is refused until somebody writes a rule for one.
 
 **3. Leave the tenant check above the block alone.**
@@ -81,13 +83,13 @@ a guest is refused until somebody writes a rule for one.
 It runs before every rule, and it is the one refusal that has to survive
 somebody opening the actions below it: a rule allowing an owner to read their
 own record allows it across customers as soon as two customers have a record
-with the same identifier. `TestThePolicyDeniesARecordOfAnotherTenant:62` asserts
+with the same identifier. `TestThePolicyDeniesARecordOfAnotherTenant:65` asserts
 the message contains `another tenant`, so the sentence is part of the contract.
 The empty `ID` is exempt because it is the candidate that has not been stored
 yet, and it belongs to nobody until it is written with the tenant off the Grant.
 
 **4. Add the action to the test list if you added an action.** `everyAction` at
-`tests/Unit/policy_test.go:31` is the whole set the default-deny tests walk. A
+`tests/Unit/policy_test.go:34` is the whole set the default-deny tests walk. A
 list holding four of five passes while the fifth is open, which is the only
 state in which any of this matters.
 
@@ -110,12 +112,29 @@ allowed, which is still refused — rather than removing the action from
 must see, call `security.Authorize`, and only then call `Skeletons(s.db)`.
 `TestEveryServiceMethodAuthorizesBeforeTheModel` reads every exported Service
 method and refuses the opposite order; the runtime twin uses a nil database so
-even constructing the Model early fails.
+even constructing the query early fails.
 
-Create builds a wired entity through `NewInstance`, keeps its pointer, writes
-`TenantID` from `data.Tenant(g)`, and calls `Save(ctx, g)`. Find and Get return
-pointers too. Copying an entity with an embedded Model leaves its `Entity`
-pointer aimed at the old allocation.
+Create builds the row with `Skeletons(s.db).New()`, keeps its pointer, fills it
+field by field, writes `TenantID` from `data.Tenant(g)`, and calls
+`Save(ctx, g)`. Find and Get return pointers too. A copy of a row keeps the model
+of the original, and the model refuses to write through it with
+`model.ErrUnwired`; assigning a whole struct over a row from `New()` does the
+same to the row.
+
+Every query starts at `Skeletons(s.db)`. The constructor returns one mutable
+query, so a second chain begun from a value held in a variable carries the
+clauses of the first.
+
+The method orchestrates and holds no rule the entity could hold. A rule about
+the record itself — whether it may be renamed, what a transition changes — is a
+pure method in the custom block of `model.go`, and the Service calls it between
+`Authorize` and `Save`. A fact of the record that the policy decides on, such as
+who owns it, can be such a method too, and the policy calls it; the decision
+stays in `Can`.
+
+A refusal the Service returns travels back untouched: the handler returns it,
+and the router answers `security.ErrForbidden` with 403 and `ErrNotFound` with
+404.
 
 CRUD does not get a Repository beside this path. A Repository is an optional
 specialization for a genuinely complex query, read model, report, export or raw
@@ -133,7 +152,7 @@ people delete:
 
 ```go
 	g, err := security.Authorize(ctx, s.policy, actor, SkeletonView, Skeleton{})
-	record, err := Skeletons(s.db).NewQuery().WhereKey(id).First(ctx, g)
+	record, err := Skeletons(s.db).WhereKey(id).First(ctx, g)
 	_, err = security.Authorize(ctx, s.policy, actor, SkeletonView, *record)
 ```
 
@@ -148,9 +167,9 @@ what keeps the policy honest.
 A policy call per record would be one call per row of a page and would still not
 narrow the query — a listing that has to read a customer's rows in order to
 decide it may not read them has already read them. **A rule that hides
-individual records from a listing belongs in the Builder query, as a
-predicate**, beside the tenant filter. The action decides whether the listing
-runs at all.
+individual records from a listing belongs in the query, as a predicate**,
+beside the tenant filter — a scope on `*SkeletonQuery` when more than one use
+case needs it. The action decides whether the listing runs at all.
 
 ## Three shapes that look like authorization and are not
 
@@ -158,14 +177,14 @@ runs at all.
   header — all of them are values the caller chose. `data.Tenant(g)` is the only
   source, and `TestNoTenantIsReadOutOfTheRequest` is what fails on the others
   here; in an application's own code they are `aru doctor`'s
-  `tenant-from-request` and `tenant-from-header`. The one place a tenant does
-  not come from a Grant is `Config.Tenant`, which is the customer a visitor with
-  no session is read as, and it comes from the application's own configuration.
-- **A check in the handler.** `module.go` handlers read the input, ask the
-  service and answer. A handler that held the database or constructed a Model
-  would skip the policy boundary, and nothing in the type system would object.
-- **A refusal that explains itself to the client.** `answer` in `module.go`
-  sends a status and `"forbidden"`. Telling the client why a policy said no is
-  telling them what exists and what does not, one request at a time. The reason
-  is in the log, where the person operating the system reads it and the person
-  probing it does not.
+  `tenant-from-request` and `tenant-from-header`. There is no other place: the
+  routes need a session, and `Config` carries no tenant.
+- **A check in the handler.** `module.go` handlers read the input and who is
+  asking, ask the service and return what it returned. A handler that held the
+  database or started a query would skip the policy boundary, and nothing in the
+  type system would object.
+- **A refusal that explains itself to the client.** The router answers a
+  refusal with the status and its standard sentence, never with the error's
+  text. Telling the client why a policy said no is telling them what exists and
+  what does not, one request at a time. The reason is in the log, where the
+  person operating the system reads it and the person probing it does not.

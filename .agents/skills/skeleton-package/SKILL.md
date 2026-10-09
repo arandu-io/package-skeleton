@@ -1,6 +1,6 @@
 ---
 name: skeleton-package
-description: Install, wire and use the :package_name package (Go, Arandu) in an application. Use when the request is to "install :package_name", "add :module_slug to the app", "go get :module_path", "wire it into bootstrap/app.go", "register the module", "use the :module_slug routes", "everything under /:module_slug returns 403", "403 forbidden from :module_slug", "the table does not exist", "no such table", "change where it is mounted", "let admins read it", or when a project's go.mod already requires :module_path. Covers the three lines of wiring and where each one goes, the Config fields and which one is required, the routes and their names, why the policy refuses everything until somebody opens it, and the migration step that is not optional.
+description: Install, wire and use the :package_name package (Go, Arandu) in an application. Use when the request is to "install :package_name", "add :module_slug to the app", "go get :module_path", "wire it into bootstrap/app.go", "register the module", "use the :module_slug routes", "everything under /:module_slug returns 403", "403 forbidden from :module_slug", "it redirects to /auth/login", "the table does not exist", "no such table", "change where it is mounted", "let admins read it", or when a project's go.mod already requires :module_path. Covers the three lines of wiring and where each one goes, the Config fields, none of them required, the routes, their names and the session they need, why the policy refuses everything until somebody opens it, and the migration step that is not optional.
 license: MIT
 ---
 
@@ -45,9 +45,7 @@ The construction, in `Build`, after the session store exists and before
 `k.Register`:
 
 ```go
-	:module_slugModule, err := :module_slug.New(:module_slug.Config{
-		Tenant: cfg.Auth.Tenant,
-	}, db, sessions)
+	:module_slugModule, err := :module_slug.New(:module_slug.Config{}, db, sessions)
 	if err != nil {
 		return App{}, err
 	}
@@ -84,16 +82,16 @@ route that authorized correctly. The migration has not run.
 
 | field | required | meaning |
 | --- | --- | --- |
-| `Tenant` | yes | the customer a visitor with no session is read as. From the application's configuration, never from the request |
 | `Prefix` | no | where the routes are mounted. Defaults to `/:module_slug` |
 | `PageSize` | no | how many records one page answers with. Defaults to 25, refused above 200 |
 
-`Tenant` is the one place a tenant does not come from a `Grant`, and it is
-because a visitor with no session has no `Grant` yet. Everywhere else the tenant
-comes from `data.Tenant(g)`. Passing a value the request named — a path segment,
-a header, a subdomain read off the URL — is what `TestNoTenantIsReadOutOfTheRequest`
-fails on. In an application the same mistake is `aru doctor`'s
-`tenant-from-request`; in a package nothing but the package's own suite looks.
+`:module_slug.Config{}` is a complete configuration. There is no tenant to pass:
+every route needs a session, and the tenant of every statement comes from
+`data.Tenant(g)`, off the Grant of whoever is signed in. Passing a value the
+request named — a path segment, a header, a subdomain read off the URL — is what
+`TestNoTenantIsReadOutOfTheRequest` fails on in the package. In an application
+the same mistake is `aru doctor`'s `tenant-from-request`; in a package nothing
+but the package's own suite looks.
 
 `PageSize` above 200 is an error from `New`, not a silent 200. A number somebody
 wrote and did not get is worse than a number somebody wrote and was told about.
@@ -105,6 +103,17 @@ wrote and did not get is worse than a number somebody wrote and was told about.
 | `GET` | `/:module_slug` | `:module_slug.index` |
 | `GET` | `/:module_slug/{id}` | `:module_slug.show` |
 | `POST` | `/:module_slug` | `:module_slug.store` |
+
+Every route sits behind `RequireAuth`, mounted by the package itself. A request
+with no session is sent to `/auth/login` — 303, or `HX-Redirect` for an htmx
+request — and comes back to the address it asked for after signing in. That is
+the sign-in screen the starter kit publishes; an application without one sees
+a 404 there.
+
+**Symptom to recognise:** every route of the package redirects to
+`/auth/login`. Nobody is signed in on that request: the session cookie did not
+arrive, or the session store passed to `New` is not the one the application
+signs people in with.
 
 Build URLs from the names, never by writing the path a second time. `aru
 route:list` shows them grouped by module. Under a custom `Prefix` the paths move
@@ -124,11 +133,11 @@ This is the state the package ships in, and it is not a bug to work around.
 `SkeletonPolicy` denies every action and has no branch that allows one:
 
 ```
-403 forbidden
+403 Forbidden
 ```
 
 is what a correctly installed, correctly migrated, correctly wired package
-answers to an administrator on day one.
+answers to an administrator who is signed in, on day one.
 
 Opening an action means writing the rule that opens it, in the package's
 `policy.go`, inside the block that says so:
@@ -154,13 +163,16 @@ the package ships, the change belongs in the package.
 
 | status | what happened |
 | --- | --- |
+| `303` to `/auth/login` | there is no session on the request |
 | `403` | the policy refused, or no rule allows the action yet |
 | `404` | no row with that id in this tenant |
-| `422` | the input was rejected; the body names the fields |
+| `303` back to the page the request came from | the input was rejected; the messages and what was typed are in the flash |
 
-A refusal carries no detail beyond the status and a word. Telling a client why a
-policy said no tells it what exists and what does not, one request at a time.
-The reason is in the log.
+The package does not choose these: its handlers return what the service
+returned, and the framework's router answers it. A refusal carries no detail
+beyond the status and its standard sentence. Telling a client why a policy said
+no tells it what exists and what does not, one request at a time. The reason is
+in the log.
 
 Anything else is a 500 and the framework's error page in development. The
 package returns unexpected errors rather than swallowing them, so a route that
