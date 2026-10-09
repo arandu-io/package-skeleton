@@ -74,6 +74,20 @@ an empty changelog rather than with somebody else's.
 - Pin Framework v0.47.1 and Hesape v0.41.1, including the native UI initialization correction.
 - Run the existing checks on develop before promotion to main.
 
+## [0.6.0] - 2026-09-09
+
+This entry was written after the tag, which shipped without one. The tag is
+immutable and was left as it is.
+
+### Changed
+
+- **Breaking.** Published views live under `resources/views/modules/<slug>/`
+  and compile to `storage/framework/views/modules/<slug>`. Under `vendor/` the
+  go command left them out of the module zip and refused the import of the
+  compiled package; the `vendorDir` constant in `views.go` is `moduleDir`.
+- Require Framework `v0.46.4` and Hesape `v0.37.0`, which refuse a publication
+  that carries the reserved name.
+
 ## [0.5.0] - 2026-09-06
 
 ### Changed
