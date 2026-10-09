@@ -38,7 +38,13 @@ jobs:
           test -z "$unformatted" || { echo "$unformatted"; exit 1; }
           GOWORK=off go build ./...
           GOWORK=off go vet ./...
+          # configure:template-start
+          # The build tag keeps configure.go out of ./..., so it is vetted by
+          # name. Only here: configure deletes the file and these lines with
+          # it, and a configured package that still named it would fail the
+          # first release it tagged.
           GOWORK=off go vet configure.go
+          # configure:template-end
           GOWORK=off go test -race -count=1 ./...
 
       - name: Audit known vulnerabilities

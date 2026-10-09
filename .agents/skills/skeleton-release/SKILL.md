@@ -48,9 +48,9 @@ which writes nothing and exits 1 when the generated file is missing, stale or
 edited by hand. It needs the `aru` binary rather than the Go toolchain alone,
 which is why it sits beside the four gates and not among them.
 
-CI runs the same four. It also runs `go vet configure.go` by name while the
-template section is still in the workflow, because the build tag on that file
-keeps it out of `./...`.
+CI runs the same four, and so does the release workflow on the tagged archive.
+Both also run `go vet configure.go` by name while their template sections are
+still in them, because the build tag on that file keeps it out of `./...`.
 
 The template has two build subjects, and both are release gates: the raw clone
 and a clean copy after `configure.go` substitutes every name. Run build, vet,
