@@ -166,10 +166,9 @@ func (s *SkeletonService) List(ctx context.Context, actor security.Subject, q da
 		limit = maxLimit
 	}
 
-	rows := Skeletons(s.db)
-	page := rows.NewQuery()
+	page := Skeletons(s.db).NewQuery()
 	if q.Cursor != "" {
-		anchor, err := rows.NewQuery().WhereKey(q.Cursor).Value(ctx, g, column)
+		anchor, err := Skeletons(s.db).NewQuery().WhereKey(q.Cursor).Value(ctx, g, column)
 		if err != nil {
 			return nil, err
 		}
