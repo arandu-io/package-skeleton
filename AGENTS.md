@@ -116,7 +116,7 @@ this one must prove about itself it proves in its own suite or nowhere.
 | | measured with |
 | --- | --- |
 | 7 Go files, one per role and one generated, all in one package at the root | `grep -l '^package skeleton' *.go` |
-| 6 test files, 43 tests | `find tests -name '*_test.go'` · `go test -count=1 ./... -v \| grep -c '^--- PASS'` |
+| 6 test files, 44 tests | `find tests -name '*_test.go'` · `go test -count=1 ./... -v \| grep -c '^--- PASS'` |
 | 3 routes | `grep -c 'r.Action' module.go` |
 | 5 actions the policy answers about | `grep -cE '^\t[A-Za-z]+ security.Action = ' policy.go` |
 | 2 direct dependencies, both under `arandu-io` | `go list -m -f '{{if and (not .Indirect) (not .Main)}}{{.Path}} {{.Version}}{{end}}' all` |
