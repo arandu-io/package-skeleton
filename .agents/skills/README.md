@@ -26,6 +26,11 @@ purpose: it travels with the package so that an assistant working in somebody
 else's project — the one running `go get` — has the wiring, the migration step
 and the closed policy in front of it instead of guessing.
 
+Its frontmatter says so, under `metadata`, with `audience: app`. That line is
+what `aru skills:sync` reads to copy the skill into an application whose
+`go.mod` requires this package, and no other skill here carries it: an
+application that received the release procedure would follow it.
+
 `skeleton-vault-notes` fires on a condition rather than on a task: it applies
 only when `MOC-arandu.md`, `plans/cmd/audit-vault/` and `45-modules/` are actually
 beside this checkout. Outside the vault it is inert, and it says so first, so a

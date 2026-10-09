@@ -2,6 +2,8 @@
 name: skeleton-package
 description: Install, wire and use the :package_name package (Go, Arandu) in an application. Use when the request is to "install :package_name", "add :module_slug to the app", "go get :module_path", "wire it into bootstrap/app.go", "register the module", "use the :module_slug routes", "everything under /:module_slug returns 403", "403 forbidden from :module_slug", "it redirects to /auth/login", "the table does not exist", "no such table", "change where it is mounted", "let admins read it", or when a project's go.mod already requires :module_path. Covers the three lines of wiring and where each one goes, the Config fields, none of them required, the routes, their names and the session they need, why the policy refuses everything until somebody opens it, and the migration step that is not optional.
 license: MIT
+metadata:
+  audience: app
 ---
 
 <!-- configure:template-start -->
