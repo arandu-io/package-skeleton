@@ -15,6 +15,15 @@ The entries below are the release history of the package skeleton this file
 was cloned with. `configure` removes them, so a configured package starts with
 an empty changelog rather than with somebody else's.
 
+## [0.7.3] - 2026-10-09
+
+### Changed
+
+- Require Framework `v0.56.0` and Hesape `v0.54.0`, the latest published
+  releases; `arandu.mod.toml` declares `framework = ">= 0.56"`. The package
+  read none of the configuration Framework `v0.56.0` removed and draws no page
+  that assigned the application name by hand, so no code changed.
+
 ## [0.7.2] - 2026-10-09
 
 ### Changed

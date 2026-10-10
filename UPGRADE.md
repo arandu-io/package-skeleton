@@ -6,6 +6,21 @@
 The notes below are the release history of the package skeleton this file was
 cloned with. `configure` removes them.
 
+## v0.7.3
+
+No API or database change. Newly configured packages use Framework v0.56.0 and
+Hesape v0.54.0. A package already configured from an earlier template moves
+with
+`go get github.com/arandu-io/framework@v0.56.0 github.com/arandu-io/hesape@v0.54.0`,
+then `go mod tidy`, and raises the `framework` floor in `arandu.mod.toml` to
+`>= 0.56`. From Framework `v0.56.0` every request carries the configured
+`APP_NAME` and `view.New` fills `Page.AppName` from it, so a package screen
+that assigned the application name after `view.New` can delete that line, and
+the constructor argument or field that carried the name only for it. The
+application that installs the package reads the upgrade guides of both
+modules: the configuration bridge no longer reads `SESSION_TTL`, and an unset
+`APP_NAME` now draws `arandu-app` where the brand was blank.
+
 ## v0.7.2
 
 No API or database change. Newly configured packages use Framework v0.55.1 and
