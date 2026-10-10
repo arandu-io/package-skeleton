@@ -67,7 +67,7 @@ opened by nothing but that package's own suite.
 
 ```toml
 name = ":author_username/:module_slug"
-framework = ">= 0.55"
+framework = ">= 0.56"
 profiles = ["conventional", "performance"]
 
 [permissions]
