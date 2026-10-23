@@ -14,6 +14,7 @@ import (
 	"github.com/arandu-io/framework/http/middleware"
 	"github.com/arandu-io/framework/security"
 	"github.com/arandu-io/hesape/database/migrations"
+	hhttp "github.com/arandu-io/hesape/http"
 
 	skeleton "github.com/arandu-io/package-skeleton"
 )
@@ -52,6 +53,14 @@ func mount(t *testing.T, cfg skeleton.Config) mounted {
 	t.Helper()
 
 	sessions := security.NewSessionStore([]byte(appKey), time.Hour, false, security.NewMemoryBackend())
+	// The session keeps who signed in; the roles are the application's to
+	// answer on every request, the way an application wires its accounts.
+	sessions.ResolveSubjects(func(_ context.Context, who security.Subject) (security.Subject, error) {
+		if admin := administrator(); who.ID == admin.ID && who.Tenant == admin.Tenant {
+			return admin, nil
+		}
+		return security.Subject{}, hhttp.ErrSubjectGone
+	})
 	flash := security.NewFlash([]byte(appKey), false)
 
 	module, err := skeleton.New(cfg, data.Wrap(nil, data.DialectSQLite), sessions)
@@ -71,13 +80,15 @@ func administrator() security.Subject {
 	return security.Subject{ID: "user-1", Tenant: "acme", Roles: []string{"admin"}, Verified: true}
 }
 
-// signIn starts a session for the subject and returns the cookies a browser
-// would send back with the next request.
+// signIn starts a session for the subject's account and returns the cookies a
+// browser would send back with the next request. Only the account is written
+// to the session; its roles come back through the store's resolver.
 func (m mounted) signIn(t *testing.T, subject security.Subject) []*http.Cookie {
 	t.Helper()
 
 	rec := httptest.NewRecorder()
-	if _, err := m.sessions.Start(context.Background(), rec, subject); err != nil {
+	who := security.Subject{ID: subject.ID, Tenant: subject.Tenant}
+	if _, err := m.sessions.Start(context.Background(), rec, who); err != nil {
 		t.Fatalf("starting a session: %v", err)
 	}
 	cookies := rec.Result().Cookies()

@@ -6,6 +6,20 @@
 The notes below are the release history of the package skeleton this file was
 cloned with. `configure` removes them.
 
+## v0.8.0
+
+No API or database change. Newly configured packages use Framework v0.64.0 and
+Hesape v0.84.1. A package already configured from an earlier template moves
+with
+`go get github.com/arandu-io/framework@v0.64.0 github.com/arandu-io/hesape@v0.84.1`,
+then `go mod tidy`, and raises the `framework` floor in `arandu.mod.toml` to
+`>= 0.64`. A session started with a subject that carries roles or actions now
+needs a `SubjectResolver` on the store: the session keeps who signed in and the
+resolver answers their roles on every request, so a test that signed a role in
+directly registers a resolver and starts the session with the account's ID and
+Tenant, as `tests/Feature/routes_test.go` does. From Framework `v0.64.0` an
+unset `APP_ENV` is production.
+
 ## v0.7.3
 
 No API or database change. Newly configured packages use Framework v0.56.0 and
