@@ -6,6 +6,16 @@
 The notes below are the release history of the package skeleton this file was
 cloned with. `configure` removes them.
 
+## v0.9.0
+
+No API or database change. Newly configured packages declare `go 1.26.10` and
+use Framework v0.66.0 and Hesape v0.85.0. A package already configured moves
+with `go mod edit -go=1.26.10` and
+`go get github.com/arandu-io/framework@v0.66.0 github.com/arandu-io/hesape@v0.85.0`,
+then `go mod tidy`, and raises the `framework` floor in `arandu.mod.toml` to
+`>= 0.66`. Go 1.26.10 fixes the standard library vulnerabilities a package
+reaches, CVE-2026-111943 in crypto/x509 among them.
+
 ## v0.8.0
 
 No API or database change. Newly configured packages use Framework v0.64.0 and

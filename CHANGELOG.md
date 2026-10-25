@@ -15,6 +15,14 @@ The entries below are the release history of the package skeleton this file
 was cloned with. `configure` removes them, so a configured package starts with
 an empty changelog rather than with somebody else's.
 
+## [0.9.0] - 2026-10-25
+
+### Changed
+
+- Require Go `1.26.10`, Framework `v0.66.0` and Hesape `v0.85.0`; the manifest
+  floor is `framework = ">= 0.66"`. Go 1.26.10 fixes the standard library
+  vulnerabilities a package built from this template reaches.
+
 ## [0.8.0] - 2026-10-23
 
 ### Changed
