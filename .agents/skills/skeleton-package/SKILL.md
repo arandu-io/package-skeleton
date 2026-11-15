@@ -107,7 +107,7 @@ wrote and did not get is worse than a number somebody wrote and was told about.
 | `POST` | `/:module_slug` | `:module_slug.store` |
 
 Every route sits behind `RequireAuth`, mounted by the package itself. A request
-with no session is sent to `/auth/login` — 303, or `HX-Redirect` for an htmx
+with no session is sent to `/auth/login` — 303, or `YPY-Redirect` for a YPY
 request — and comes back to the address it asked for after signing in. That is
 the sign-in screen the starter kit publishes; an application without one sees
 a 404 there.
@@ -172,7 +172,7 @@ the package ships, the change belongs in the package.
 | `422` `application/problem+json` | the input was rejected and the request asked for JSON; the messages are in `errors`, keyed by field |
 
 A request that asks for JSON (an `Accept` naming `application/json`, or an XHR
-that is not htmx) gets the 403 and the 404 as problem documents too. The
+that is not a YPY request) gets the 403 and the 404 as problem documents too. The
 sign-in redirect is the same for every client.
 
 The package does not choose these: its handlers return what the service

@@ -317,7 +317,7 @@ open `Routes` with `r = r.Group("", middleware.RequireAuth(m.sessions))`; make
 and from the wiring in `bootstrap/app.go`.
 
 The table is what a page sees. A client that asks for JSON -- an `Accept`
-naming `application/json`, or an XHR that is not htmx -- is not redirected after
+naming `application/json`, or an XHR that is not a request of the old library -- is not redirected after
 a rejected input: Framework `v0.51.0` answers it 422 `application/problem+json`,
 with the messages in `errors` keyed by field, and answers the 403 and the 404 as
 problem documents too. Only the sign-in redirect is the same for every client.

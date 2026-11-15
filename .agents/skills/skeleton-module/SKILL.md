@@ -119,7 +119,7 @@ answers it, in one place, through the same refusal path the route guards use:
 | anything else | the error page in development, 500 in production |
 
 A request wants JSON when its `Accept` names `application/json`, or when it is an
-XHR that is not htmx; it gets every status above as a problem document rather
+XHR that is not a YPY request; it gets every status above as a problem document rather
 than a page.
 
 The answer is the status and its standard sentence, never the error's own text:
