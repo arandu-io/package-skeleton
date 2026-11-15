@@ -12,20 +12,24 @@ calls `New`, gets something that satisfies it, and registers it by hand.
 
 ```go
 var (
-	_ foundation.Module     = (*Module)(nil)
-	_ foundation.Migratable = (*Module)(nil)
+	_ foundation.Module      = (*Module)(nil)
+	_ foundation.Migratable  = (*Module)(nil)
+	_ foundation.Bootable    = (*Module)(nil)
+	_ foundation.Publishable = (*Module)(nil)
 )
 ```
 
-Those two lines are compile-time proof and they belong at the top of
+Those lines are compile-time proof and they belong at the top of
 `module.go`. Add one for every contract the module takes on, so the failure lands
 here rather than at the registration in somebody else's repository.
 
 ## Taking on more than routes
 
-Six interfaces sit beside `Module` in `framework/foundation`, one of which this
-package already implements, and each is opted into the same way — by
-implementing it. Confirm the set for the version in `go.mod` with:
+Seven interfaces sit beside `Module` in `framework/foundation` for a package
+like this one, three of which it already implements, and each is opted into the
+same way — by implementing it. The framework asks a module about a few more
+(`Commandable`, `CSRFExempt`, `JobHandlers`, `Diagnostic`), and `go doc` lists
+them. Confirm the set for the version in `go.mod` with:
 
 ```sh
 export GOWORK=off
@@ -34,10 +38,11 @@ go doc github.com/arandu-io/framework/foundation
 
 | interface | what it is for |
 | --- | --- |
-| `Bootable` | prepare state once, at boot |
+| `Bootable` | prepare state once, at boot — this package implements it, to refuse a boot whose views are not linked |
 | `Background` | run a loop of the module's own |
 | `Schedulable` | declare work for the scheduler |
 | `Migratable` | own tables — this package implements it |
+| `Publishable` | hand files to the project — this package implements it, for its views |
 | `Health` | report on the storage it depends on |
 | `Closable` | give resources back at shutdown |
 
@@ -72,7 +77,7 @@ The name is what a URL is built from. Two spellings of one address disagree, and
 the failure when they do is a link to a 404. The prefix is `m.cfg.Prefix` and
 never a literal: the application decides where the package is mounted, and
 `TestTheModuleRegistersItsRoutesUnderItsPrefix` at
-`tests/Feature/routes_test.go:210` mounts it at `/widgets` and fails if any
+`tests/Feature/routes_test.go:221` mounts it at `/widgets` and fails if any
 route came out anywhere else, or if `everyRoute` does not reach it. It also
 asserts every route is tagged with the module name, which is what
 `aru route:list` groups by.
@@ -136,7 +141,7 @@ calls `errors.Is` or `errors.As`, `fhttp.Refuse`, `fhttp.Reject` or
 `http.Error`.
 
 **4. Add the case to the route tests.** `everyRoute` at
-`tests/Feature/routes_test.go:118` is a table of every route.
+`tests/Feature/routes_test.go:129` is a table of every route.
 `TestAVisitorWithNoSessionIsSentToSignIn` asserts each one sends a request with
 no session to `/auth/login`, and `TestASignedInSubjectReachesThePolicyAndIsRefused`
 asserts each one answers a signed-in administrator 403 from the closed policy.
@@ -264,7 +269,7 @@ why `PageSize` above `MaxPageSize` is an error and not a silent 200.
 
 Add the case to `TestTheConfigurationRefusesWhatCannotWork` at
 `tests/Unit/policy_test.go:298`, which is a map of named bad configurations, and
-to `TestNewRefusesAWiringThatCannotWork` at `tests/Feature/routes_test.go:267`
+to `TestNewRefusesAWiringThatCannotWork` at `tests/Feature/routes_test.go:278`
 if the field can make `New` fail.
 
 ## What may leave in a response
@@ -311,7 +316,7 @@ func (createSkeletons) GetName() string { return "20260823_0001_create_skeletons
 ```
 
 **The name carries the order and nothing else does.** `TestTheModuleDeclaresItsSchema`
-at `tests/Feature/routes_test.go:301` requires the returned names to be sorted,
+at `tests/Feature/routes_test.go:312` requires the returned names to be sorted,
 requires none to be empty, and requires every one to satisfy
 `migrations.ReversibleMigration` — the migrator finds `Down` by type assertion,
 so a `Down` with the wrong signature is a rollback that silently does nothing.

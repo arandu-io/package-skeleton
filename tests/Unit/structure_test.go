@@ -34,7 +34,7 @@ func TestTheApplicationIntegrationHasOneCompositionFile(t *testing.T) {
 		}
 
 		text := string(body)
-		for _, required := range []string{"bootstrap/app.go", ":module_slug.New(", "k.Register"} {
+		for _, required := range []string{"bootstrap/app.go", ":module_slug.New(", "WithProviders"} {
 			if !strings.Contains(text, required) {
 				t.Errorf("%s no longer teaches the explicit composition step %q", guide, required)
 			}

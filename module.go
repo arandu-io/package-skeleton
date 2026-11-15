@@ -13,7 +13,7 @@
 //	views.go       -> the files the application takes ownership of
 //
 // An application registers it explicitly. There is no service provider, no
-// container and no discovery: the wiring is three lines somebody wrote, and
+// container and no discovery: the wiring is lines somebody wrote, and
 // reading them is how they learn what the application is made of.
 package skeleton
 
@@ -39,13 +39,14 @@ import (
 // It implements foundation.Module, which is Name and Routes and nothing else --
 // that pair is the whole public contract between a package and the framework.
 //
-// It also implements foundation.Migratable, because it owns a table, and
-// foundation.Publishable, because it hands view sources to the project. The
-// other optional interfaces are declared beside Module in the framework and are
-// opted into the same way, by implementing them: Bootable to prepare state at
-// boot, Background to run a loop of its own, Schedulable to declare work for
-// the scheduler, Health to report on the storage it depends on, Closable to
-// give resources back at shutdown.
+// It also implements foundation.Migratable, because it owns a table,
+// foundation.Publishable, because it hands view sources to the project, and
+// foundation.Bootable, because it refuses to start while those views are not
+// linked. The other optional interfaces are declared beside Module in the
+// framework and are opted into the same way, by implementing them: Background
+// to run a loop of its own, Schedulable to declare work for the scheduler,
+// Health to report on the storage it depends on, Closable to give resources
+// back at shutdown.
 type Module struct {
 	cfg      Config
 	svc      *SkeletonService
